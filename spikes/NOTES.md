@@ -4,7 +4,7 @@
     Method: use prose for a single technique, a numbered list when
     the spike has multiple sequential build steps. -->
 
-## Spike 1 Mic Permission + raw audio capture:
+## Spike 1 Mic Permission + Raw Audio Capture:
 
 **Question:** Can I get a permission prompt to appear, grant it, and print raw
 audio sample data to the console for 5 seconds?
@@ -55,50 +55,50 @@ silent audio output.
   to "can I detect + read permission state," not "how should the app respond
   to it."
 
-**Question moving forward:** Confirm prompt behavior once the app is
+**Question Moving Forward:** Confirm prompt behavior once the app is
 packaged as a real .app bundle with Info.plist. Don't assume it'll "just work"
 the same way.
 
 **Status:** Core question answered: raw audio capture via AVAudioEngine/PyObjC
 works, and permission state is now explicitly observable rather than inferred.
 
-## Spike 2 STT Streaming:
+## Spike 2 Speech To Text Streaming:
 
 **Question:**
-STT engine logistics: Does it support continuous streaming (text arrives incrementally as you speak) or only discrete utterances (you get a full result only after a pause). How does threading look like:
+Regarding, STT engine logistics, does it support continuous streaming (text arrives incrementally as you speak) or only discrete utterances (you get a full result only after a pause). How does threading look like?:
 
 - If streaming: your Filler-word matcher can run on partial text as it arrives — genuinely near-real-time.
-- If discrete/utterance-based: detection happens in bursts after each pause. Means "real-time" in your NFRs should be reworded to something like "detected within N seconds of the pause" rather than implying continuous mid-sentence detection.
+- If discrete/utterance-based: detection happens in bursts after each pause. Means you should expect speech to be "detected within N seconds of the pause" rather than continuous mid-sentence detection.
 
 **Method:**
 
 1. Status Checks: Mic Permissions Status Check & Speech Recognition Permissions Status Check
-2. Create a SFSpeechAudioBufferRecognitionRequest instance & call `.setShouldReportPartialResults_(True)` which gives incremental partial results as speech comes in (_blocked initially by a TCC crash requiring NSSpeechRecognitionUsageDescription --see Environment Issue below_)
+2. Create a `SFSpeechAudioBufferRecognitionRequest` instance & call `.setShouldReportPartialResults_(True)` which gives incremental partial results as speech comes in (_blocked initially by a TCC crash requiring `NSSpeechRecognitionUsageDescription` --see Environment Issue below_)
 
-3. Create an SFSpeechRecognizer instance
+3. Create an `SFSpeechRecognizer` instance
 4. Start a recognition task with request
 5. Initialize engine and install tap (from spike 1) which will take in `tap_callback`.
 6. Start engine and speak sentence with midsentence pause to determine if streaming or discrete speech results.
 
-**_Environment Issue_: Speech permission crash tied to "responsible process"**
-
-- While setting up speech authorization, `requestAuthorization_()` crashed with
-  a TCC error demanding `NSSpeechRecognitionUsageDescription` in Info.plist.
-  Adding that key to the system Python.app's Info.plist had no effect.
-
-- **Root cause:** macOS TCC attributes permission requests to the "responsible
-  process", i.e. the app that launched the script, not the script/interpreter
-  itself. Running via VS Code's integrated terminal made _VS Code_ the
-  responsible process, and VS Code's Info.plist is missing
-  `NSSpeechRecognitionUsageDescription` (a known gap, confirmed via an open
-  VS Code GitHub issue). This is also why mic access worked untouched from
-  day one — VS Code's Info.plist already includes that key.
-- **Fix:** Run the script from macOS's built-in Terminal.app instead of VS
-  Code's integrated terminal. Terminal.app is a valid responsible process with
-  the necessary keys already present; permission dialog appeared and was
-  granted normally.
-  - This is a dev-environment quirk only. Once the real app is packaged as its own signed `.app`, it becomes its own
-    responsible process and this issue doesn't apply.
+> [!NOTE]
+> **_Environment Issue Notes: Speech permission crash tied to "responsible process"_**
+>
+> - While setting up speech authorization, `requestAuthorization_()` crashed with
+>   a TCC error demanding `NSSpeechRecognitionUsageDescription` in Info.plist.
+>   Adding that key to the system Python.app's Info.plist had no effect.
+> - **Root cause:** macOS TCC attributes permission requests to the "responsible
+>   process", i.e. the app that launched the script, not the script/interpreter
+>   itself. Running via VS Code's integrated terminal made _VS Code_ the
+>   responsible process, and VS Code's Info.plist is missing
+>   `NSSpeechRecognitionUsageDescription` (a known gap, confirmed via an open
+>   VS Code GitHub issue). This is also why mic access worked untouched from
+>   day one — VS Code's Info.plist already includes that key.
+> - **Fix:** Run the script from macOS's built-in Terminal.app instead of VS
+>   Code's integrated terminal. Terminal.app is a valid responsible process with
+>   the necessary keys already present; permission dialog appeared and was
+>   granted normally.
+> - _This is a dev-environment quirk only. Once the real app is packaged as its own signed `.app`, it becomes its own
+>   responsible process and this issue doesn't apply._
 
 **Result:**
 Text showed up and stabilized before the pause finished, well ahead of resuming speech, i.e. a clean "streaming, not discrete" result.
@@ -142,15 +142,15 @@ Engine stopped.
 
 - **Streaming confirmed**: filler-word matcher can run on partial text near-real-time
 - **Partial results are provisional, not append-only** — transcript shows this: "watermelon" on 1 timestamp transcription → "watermelon's" in a following timestamp transcription. Another example: "one" → "one two" → "12" → "123". The recognizer revises earlier words as more context arrives.
-  - This is a real design constraint: a filler-word detector can't just naively append/flag words as they first appear — it needs to handle a word it flagged getting silently corrected/retracted a moment later.
+  - _This is a real design constraint: a filler-word detector can't just naively append/flag words as they first appear; it needs to handle a word it flagged getting silently corrected/retracted a moment later._
 
 **Deferred Decisions:**
 
 - Open Question: How should the filler-word matcher handle retracted/revised partial text?
 
-**Question moving forward:** Confirm if run-loop-pump is necessary once packaged app.
+**Question Moving Forward:** Confirm if run-loop-pump is necessary once packaged app.
 
-- During `success, error = audio_engine.startAndReturnError_(None)` time.sleep() alone silently drops streaming results in a bare script; needed to actively pump NSRunLoop. It's unverified whether a real packaged app (with its own Cocoa/AppKit event loop already running) needs this workaround at all.
+- During `success, error = audio_engine.startAndReturnError_(None)` `time.sleep()` alone silently drops streaming results in a bare script; needed to actively pump NSRunLoop. It's unverified whether a real packaged app (with its own Cocoa/AppKit event loop already running) needs this workaround at all.
 
 **Status:**
 Spike complete, core question answered (streaming confirmed), plus the two carried-forward caveats (run-loop behavior in a packaged app, revision/retraction handling) as open items for later.

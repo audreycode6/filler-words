@@ -7,16 +7,16 @@ status = AVFoundation.AVCaptureDevice.authorizationStatusForMediaType_(
 )
 if status == 0:
     print(
-        "Mic permission status: not determined (0) -- user hasn't been asked for permission yet."
+        "Mic permission status: not determined -- user hasn't been asked for permission yet."
     )
 elif status == 1:
-    print("Mic permission status: restricted (1) -- access is restricted by something.")
+    print("Mic permission status: restricted -- access is restricted by something.")
 elif status == 2:
     print(
-        "Mic permission status: denied (2) -- user or system settings have explicitely said no."
+        "Mic permission status: denied -- user or system settings have explicitely said no."
     )
 elif status == 3:
-    print("Mic permission status: authorized (3) -- good to go!")
+    print("Mic permission status: authorized -- good to go!")
 else:
     print(f"Mic permission status: unknown ({status})")
 
