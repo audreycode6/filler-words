@@ -40,7 +40,7 @@ def speech_auth_callback(status):
 
 Speech.SFSpeechRecognizer.requestAuthorization_(speech_auth_callback)
 print("Waiting for you to respond to any permission dialog...")
-time.sleep(6)  # give callback time to run before engine setup.
+time.sleep(1)
 
 # Create a SFSpeechAudioBufferRecognitionRequest instance
 speech_recognition_request = Speech.SFSpeechAudioBufferRecognitionRequest.alloc().init()
@@ -78,13 +78,6 @@ input_format = input_node.inputFormatForBus_(0)
 
 
 def tap_callback(buffer, when):
-    """
-    audio engine calls automatically every time a
-    chunk of audio is ready
-
-    - buffer is an AVAudioPCMBuffer obj holding audio samples
-    - when is an AVAudioTime timestamp saying when that chunk occurred
-    """
     speech_recognition_request.appendAudioPCMBuffer_(buffer)
 
 
