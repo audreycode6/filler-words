@@ -625,7 +625,9 @@ happening — 300 buffers at +30s, 600 at +60s — putting the cap at roughly
   here.
 - The shape of the matcher's reset — one method, two with different scopes, or state
   the pipeline owns rather than the matcher — is matcher implementation
-  work, deliberately not designed here.
+  work, deliberately not designed here. _Settled — see **Design decisions**
+  at the end of this file: the previous transcript is held by a separate
+  tracker, so the matcher has no reset to shape._
 
 **Question Moving Forward:**
 
@@ -908,23 +910,36 @@ and each flip re-emits everything downstream as changed.
   lag. This is the decision the stable-prefix design now has to be rebuilt
   around.
 
+_Both deferred decisions above are settled. The mechanism that replaced
+stable-prefix counting is recorded under **Design decisions** at the end of
+this file._
+
 **Question Moving Forward:**
 
 - Does the segment length vary with speech rate, silence, or content?
   Thirteen resets over five minutes, and the ten logged ranged from ~12s to
-  ~45s apart, with no evident cause. If it can be bounded, the matcher's
-  worst-case lag can be bounded.
-- Does the close-out pass ever cross a segment boundary, i.e. can text from
-  two segments ago change? Nothing observed suggests it does, but this run
-  did not test it directly.
-- Is the close-out revision always a single event, or can a segment be
-  re-decoded more than once before rolling?
+  ~45s apart, with no evident cause. This matters because a filler word is
+  counted only when its segment rolls over, so the wait before it appears in
+  the count is however long that segment has left to run. If segments have a
+  maximum length, the longest that wait can ever be is known too. One
+  five-minute run shows the range that happened to occur, which is not the
+  same as a limit.
+- Does the close-out pass ever cross a segment boundary — can text from two
+  segments ago change? This is the one observation that would break counting
+  by segment. That text has already been counted, so a change to it could only
+  be corrected by taking the count back down. Nothing observed suggests it
+  happens, but this run did not test it directly.
+- A separate question, about the segment still open rather than the ones
+  already counted: can a segment be re-decoded more than once before it rolls
+  over? Counting by segment absorbs this either way, since only the last text
+  before the rollover is counted, however many times it was rewritten first.
+  Worth knowing, but nothing in the design depends on the answer.
 - Does the on-device path ever oscillate the way the server does — an early
   word flipping repeatedly within a live segment? Nothing in this run shows
-  it, and the 1-2 word depth of 47 of 77 revisions argues against it, but a
-  matcher that trusts the live prefix depends on the answer being no.
-- How much does accuracy degrade for unscripted speech, and does that
-  degradation ever reach "like"?
+  it, and the 1-2 word depth of 47 of 77 revisions argues against it. This
+  mattered while the matcher counted from the live prefix. Counting by segment
+  never reads a segment until it is finished, so an early word flipping inside
+  an open segment is invisible to it.
 
 **Status:** Spike complete, all three questions answered.
 
@@ -956,3 +971,58 @@ ever safe at any depth at any time. _There is no configuration of
 `SFSpeechRecognizer` in which the stable prefix is stable._ The matcher has
 to be built for a transcript that revises behind itself, and the on-device
 shape is the more tractable of the two to build against.
+
+---
+
+# Design decisions
+
+Decisions taken from the spike results. They are recorded here rather than
+under any one spike, because each draws on more than one run, and the spike
+sections above are meant to stay a record of what each run measured.
+
+## Counting filler words in a revising transcript
+
+Settled after Spike 6, replacing the stable-prefix design that Spike 6
+disproved. This answers both of the decisions Spike 6 deferred: whether to
+count live and correct afterwards, and where the check for a rollover belongs.
+It also answers Spike 5's question about the shape of the matcher's reset.
+
+- **A segment is counted once, after the recognizer is finished with it.**
+  Nothing is counted while a segment is still being revised. When the
+  transcript rolls over, whatever text was last seen before the rollover is
+  taken as final: count its filler words and its total words, add both to the
+  session totals, then start tracking the new transcript. Stopping the session
+  counts the segment still in progress, or the last stretch of speech is lost.
+- **Waiting for the rollover was chosen over counting live and correcting
+  afterwards.** Waiting up to ~45s for a segment to roll over does not put the
+  displayed count 45s behind the speech. Every segment that has already rolled
+  over is fully counted; the only words missing are the ones spoken since the
+  current segment began. Spike 5 logged words from the tracked list arriving
+  about five times a minute, and Spike 6's segments averaged about 23s, so
+  roughly two tracked words are waiting to be counted at any given moment.
+  Counting live recovers those two, but any already-counted word that a
+  close-out pass rewrites then has to come back out of the displayed count,
+  and Spike 6 logged nine close-outs in five minutes, each changing words.
+  Waiting means every number added to the count has already stopped changing,
+  so the count only ever goes up.
+- **The count is taken at the rollover.** The close-out pass is the more
+  obvious place to take it, since it is the recognizer's last look at the
+  segment, but it does not happen every time — only nine of the thirteen
+  rollovers in Spike 6's on-device run had one in front of them. Counting at
+  the close-out would silently skip the other four segments. Every segment
+  ends in a rollover, so that is the one place a count can be taken reliably.
+  Where a close-out did happen, its corrections are already in the text the
+  rollover hands over.
+- **A rollover is recognized by the drop in length.** Checking only whether
+  the new transcript stopped extending the old one is not enough, because a
+  close-out revision also stops extending it, and counting a close-out as a
+  rollover would count the same segment twice. The size of the drop separates
+  them: a close-out rewrites the segment at roughly the same length, while a
+  rollover replaces it with something far shorter. In Spike 6's on-device run
+  a 448-character transcript was replaced by `OK` 0.00s later.
+- **The rollover check sits in its own small tracker**, between the code that
+  receives recognition callbacks and the code that counts words. The tracker
+  holds the previous transcript and hands out finished segments. Counting is
+  then a plain function of one segment's text, and the running session totals
+  live somewhere else again. This keeps text comparison out of the audio
+  pipeline, which cannot be tested without a microphone.
