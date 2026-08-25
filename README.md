@@ -9,17 +9,29 @@ Menu bar application that identifies and alerts when filler words (um, uh, etc) 
 - ...
 - ...
 
-# Local Development
+## Local Development
 
 #### Requirements:
 
-- ...
-- ...
+- macOS. The app is built directly on Apple's Speech and AVFoundation
+  frameworks, so there is no cross-platform path.
+- Python 3.12. This is the version the project is pinned to and the one all
+  spike measurements were taken on.
 
 #### Typical Development Workflow:
 
-1. ...
-2. ...
+1. Create and activate the virtual environment:
+
+       python3.12 -m venv venv
+       source venv/bin/activate
+
+2. Install runtime and development dependencies:
+
+       pip install -r requirements-dev.txt
+
+3. Run the tests:
+
+       pytest
 
 ## Contributing
 
