@@ -1,0 +1,7 @@
+# Development-only dependencies. These are not shipped in the .app bundle.
+#
+#   pip install -r requirements-dev.txt
+
+-r requirements.txt
+
+pytest==9.1.1
