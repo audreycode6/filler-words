@@ -443,9 +443,10 @@ same revision passes (0.04-0.67), so this isn't a clean, isolated signal.
   `SFSpeechRecognizer` cannot detect "um"/"uh" via any text-based API
   surface, at any level tested. Rather than solve this with a heavier
   architecture change (a cloud STT with disfluency-removal disabled, or a
-  specialized local model), the v1 goal is updated: detect filler
-  words/phrases that survive as real text (e.g. "like", "so", "actually",
-  "basically"), not all disfluencies. "um"/"uh" are out of scope for v1.
+  specialized local model), the v1 goal was updated at this point: detect
+  filler words/phrases that survive as real text (e.g. "like", "so",
+  "actually", "basically"), rather than all disfluencies. "um"/"uh" are out
+  of scope for v1.
 - **Real-word survival is already evidenced, not assumed.** "like" appears
   correctly transcribed three separate times across two spikes (Spike 2's
   "I like to eat..." and this spike's two runs) — never dropped, never
@@ -480,11 +481,12 @@ words named in the original question ("um", "uh", "like"), "like" survives
 reliably as real text across every instance observed, while "um" and "uh"
 are unrecoverable at any tested API level (`formattedString()`,
 `segments()`, `alternativeSubstrings()`) — confirmed a hard blocker, not a
-formatting quirk. This directly shaped the project-level scope decision:
-v1 will track real-word fillers only ("like", "so", "actually", "basically",
-etc.), not pure disfluency sounds that have no stable word to match against
-("um", "oh", "uh", "er"). Acoustic DSP-based detection of those sound-based
-fillers is flagged as a possible future v2 expansion, not a v1 requirement.
+formatting quirk. This directly shaped the project-level scope decision taken
+at the time: v1 would track real-word fillers only ("like", "so", "actually",
+"basically", etc.), rather than pure disfluency sounds with no stable word to
+match against ("um", "oh", "uh", "er"). Acoustic DSP-based detection of those
+sound-based fillers was flagged as a possible future v2 expansion, rather than
+a v1 requirement.
 
 ## Spike 5 Long Session Continuity
 
@@ -980,7 +982,49 @@ Decisions taken from the spike results. They are recorded here rather than
 under any one spike, because each draws on more than one run, and the spike
 sections above are meant to stay a record of what each run measured.
 
-## Counting filler words in a revising transcript
+## Choosing what the app counts
+
+Settled after Spike 5, and the reason the project is named for verbal habits
+rather than for filler words. The app counts a list of tracked words: the
+undesirable vocabulary someone has decided to drop, which the app exists to
+make countable.
+
+- **The list holds whatever its author actually overuses.** Whoever ships the
+  app picks the words, and a tracked word does not have to be unambiguous.
+  Most of what a person leans on is ordinary vocabulary — "just", "well",
+  "stuff", "to be honest" — and that is exactly why the habit is hard to hear
+  in your own speech and worth putting a number on.
+- **Restricting the list to unambiguous words was considered and dropped.**
+  Spike 4 established that "um" and "uh" cannot be recovered from the
+  recognizer at any level. Spike 5 then found roughly half the "like" instances
+  in a minute of unscripted speech doing ordinary work. One reading of that
+  measurement is to admit only words with no ordinary usage, which leaves slang
+  and profanity and very little else. The reading taken here is that it names
+  a cost to carry, because a list of unambiguous words omits nearly every word
+  a speaker would want to work on.
+- **Every occurrence is counted.** Weighing each occurrence against the
+  sentence around it is separate work that nothing else depends on and can be
+  added later.
+- **Entries may be more than one word.** Phrases like "to be honest" are real
+  entries, so the matcher takes the longest phrase that matches and consumes
+  the words it used before looking for the next one. Against a list holding
+  only single words this behaves identically, which makes the capability free
+  to keep.
+- **The list is editable where it is written and fixed where it is used.**
+  Editing it in source is how the list changes, which makes it configuration
+  without an interface having to be built for it. Anyone running what was
+  shipped gets the list as shipped. This closes the question Spike 4 deferred,
+  of whether the list is a fixed default, user-configurable, or both: the
+  curated default comes first, because it is the least that proves the matching
+  pipeline end to end, and supplying words some other way changes only where
+  they come from.
+- **Letting someone else build a list is deferred.** A word the recognizer
+  mishandles counts zero for the life of the app with nothing indicating why.
+  The check that catches this works because the person choosing the words is
+  the person running it, so any interface for adding words needs its own
+  answer — a warning at entry, or a recognizer test built in.
+
+## Counting tracked words in a revising transcript
 
 Settled after Spike 6, replacing the stable-prefix design that Spike 6
 disproved. This answers both of the decisions Spike 6 deferred: whether to
@@ -990,7 +1034,7 @@ It also answers Spike 5's question about the shape of the matcher's reset.
 - **A segment is counted once, after the recognizer is finished with it.**
   Nothing is counted while a segment is still being revised. When the
   transcript rolls over, whatever text was last seen before the rollover is
-  taken as final: count its filler words and its total words, add both to the
+  taken as final: count its tracked words and its total words, add both to the
   session totals, then start tracking the new transcript. Stopping the session
   counts the segment still in progress, or the last stretch of speech is lost.
 - **Waiting for the rollover was chosen over counting live and correcting
