@@ -1,8 +1,12 @@
-# filler-words
+# verbal-habits
 
 ## Description
 
-Menu bar application that identifies and alerts when filler words (um, uh, etc) are used in speech. Captures mic audio when “on”. Transcribes speech to text and checks the transcription against a fixed list of filler words (e.g ‘um’, ‘uh’, ‘like’, etc). Show lightweight alert when filler word use identified and keep running count of filler words used. Allows users to be aware of their use of filler words and work towards removing those words from speech.
+Menu bar app for tracking word usage — helping to remove undesirable
+vocabulary from speech. Turn it on and it listens, transcribes your speech on
+device, and keeps a running count of every word on your tracked list. Each use
+raises a lightweight alert as it happens, and the session ends with a summary
+of the totals.
 
 ## Features
 
