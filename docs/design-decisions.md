@@ -114,3 +114,51 @@ It also answers Spike 5's question about the shape of the matcher's reset.
   seconds and multi-word entries take under a second to say, so the boundary
   landing inside one is rare. The acceptance is recorded here so that a later
   reader takes it for a limit of the design rather than a bug in it.
+
+## Holding the totals of one session
+
+A session is one stretch of listening, from the moment the app starts counting
+to the moment the person speaking confirms a stop. These decide what a session
+holds and what is derived from it, so that the numbers on screen have exactly
+one definition each.
+
+- **One object holds every number the interface shows.** The per-entry counts,
+  the words spoken, how many segments have been counted and how long the
+  session has run all live together, and anything else is derived from them
+  there. The alternative is an interface that keeps a tally of its own — a
+  number held by the status item's title, or by a menu row, raised by 1 each
+  time a segment arrives. That number is a second copy of the count, correct
+  only for as long as every update reaches it. An open menu puts the app into
+  an event-tracking mode where work scheduled the ordinary way stops running
+  until the menu closes, and a session started again sets the stored counts
+  back to 0 while the held number keeps whatever it last showed. Reading every
+  figure off the session each time the menu opens leaves nothing that can fall
+  behind.
+- **The word count comes back from the call that counts the tracked words.**
+  Both numbers need the segment split into words first, and that split is where
+  the definition of a word lives: whether a trailing comma is part of one,
+  whether "watermelon's" is one word or two. Counting the words anywhere else
+  means splitting the text a second time against a second definition, and two
+  definitions that disagree by a little put a number on screen that is wrong by
+  a little, which is the hardest kind to notice. Both numbers come back from
+  one split, and the session adds them up.
+- **The measure of a habit is tracked words per minute.** 12 of them in
+  half a minute of speech and 12 across 10 minutes are different habits,
+  and a total on its own cannot tell them apart. Elapsed time carries that
+  difference, which is why the session holds a clock at all. The rate is
+  derived where the counts live rather than worked out when a menu opens, so
+  it cannot come out differently in two places that show it.
+- **Stopping freezes the elapsed time.** The rate divides by it, so a summary
+  left open on screen after a session ends would go on falling and read as a
+  live number. Segments still arriving from the recognizer after the stop are
+  dropped for the same reason: what the person is reading must not move
+  underneath them. Anything in flight is counted before the stop or not at all.
+- **A session that has counted nothing is distinguishable from one that has
+  counted zero.** A segment takes 12 to 45 seconds to commit, so
+  every session has nothing to show for its first stretch. A denied
+  microphone produces silent audio and an empty transcript, which counts 0
+  for as long as it runs, so a bare 0 on screen has two very different
+  meanings. Counting the committed segments separates them, and the interface
+  can say it is listening until the first one lands.
+- **Starting again discards what the last session counted.** Nothing is kept
+  between sessions. Keeping a history is separate work.
