@@ -7,7 +7,7 @@ that changing what the app tracks changes no test here.
 
 import config
 from fixtures import transcripts
-from matcher import SegmentTracker, SessionCounts, count_tracked
+from matcher import SegmentTracker, count_tracked
 
 
 def commit_all(sequence, tracker=None):
@@ -148,26 +148,6 @@ def test_flush_after_a_rollover_does_not_re_emit_the_committed_segment():
     tracker.update(transcripts.SPIKE6_ROLLOVER_TO)
 
     assert tracker.flush() == transcripts.SPIKE6_ROLLOVER_TO
-
-
-# --- SessionCounts -----------------------------------------------------------
-
-
-def test_the_count_never_decrements():
-    tracked = ["like", "well"]
-    session = SessionCounts(tracked)
-    seen = []
-
-    for segment in ["well I like it", "no matches here", "like like"]:
-        session.add(*count_tracked(segment, tracked))
-        seen.append((dict(session.counts), session.total_word_count))
-
-    for (earlier, earlier_words), (later, later_words) in zip(seen, seen[1:]):
-        assert later_words >= earlier_words
-        assert all(later[word] >= earlier[word] for word in tracked)
-
-    assert session.counts == {"like": 3, "well": 1}
-    assert session.total_word_count == 9
 
 
 # --- end to end --------------------------------------------------------------

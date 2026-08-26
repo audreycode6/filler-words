@@ -8,7 +8,8 @@ added to the totals -- the count only ever goes up.
 
     SegmentTracker   hands out finished segments, one per rollover.
     count_tracked    a pure function of one segment's text.
-    SessionCounts    the running totals across segments.
+
+The running totals across segments belong to the session, in session.py.
 
 docs/design-decisions.md carries the reasoning behind this design.
 """
@@ -37,7 +38,7 @@ def count_tracked(text, tracked_words):
 
     Returns the per-entry counts and the segment's word count. The word count is
     taken here because this is where the text has already been split, and the
-    running total lives in SessionCounts.
+    running total belongs to the session.
 
     Every tracked entry appears in the returned counts, including the ones that
     did not occur -- callers never have to branch on a missing key.
@@ -103,16 +104,3 @@ class SegmentTracker:
 
         return len(current) <= ROLLOVER_LENGTH_RATIO * len(previous)
 
-
-class SessionCounts:
-    """The running totals across every segment counted so far."""
-
-    def __init__(self, tracked_words):
-        self.counts = {entry: 0 for entry in tracked_words}
-        self.total_word_count = 0
-
-    def add(self, counts, word_count):
-        """Fold one committed segment's counts into the totals."""
-        for entry, count in counts.items():
-            self.counts[entry] = self.counts.get(entry, 0) + count
-        self.total_word_count += word_count
