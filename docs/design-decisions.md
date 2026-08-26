@@ -92,3 +92,25 @@ It also answers Spike 5's question about the shape of the matcher's reset.
   then a plain function of one segment's text, and the running session totals
   live somewhere else again. This keeps text comparison out of the audio
   pipeline, which cannot be tested without a microphone.
+- **The drop is measured as a fraction of the previous transcript, and half is
+  the line.** A new transcript at half the length of the one before it, or
+  shorter, is a rollover; anything longer than that is the same segment being
+  rewritten. The number is a midpoint rather than a tuned threshold, because
+  the two behaviours it separates sit far apart on either side of it. The one
+  rollover measured in full collapsed a 448-character transcript to two
+  characters, under half a percent, and a close-out rewrites a segment within a
+  few percent of the length it already had. Anywhere between those would
+  classify both correctly, so the midpoint was taken and the measurement
+  written down beside it. A future run that logs a rollover into a long first
+  utterance is what would move it.
+- **A tracked word spoken across a rollover is missed, and that is accepted.**
+  Each segment is counted whole and on its own, so an entry of more than one
+  word that begins in one segment and finishes in the next matches neither
+  half: "to be" ending a segment and "honest" beginning the following one
+  counts as no occurrence of "to be honest". Carrying the tail of a segment
+  forward to be reconsidered against the next one would recover it, at the cost
+  of the property that makes the count trustworthy, which is that a segment is
+  read exactly once and never revisited. Segments run twelve to forty-five
+  seconds and multi-word entries take under a second to say, so the boundary
+  landing inside one is rare. The acceptance is recorded here so that a later
+  reader takes it for a limit of the design rather than a bug in it.
