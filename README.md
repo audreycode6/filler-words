@@ -22,6 +22,9 @@ of the totals.
 - Python 3.12. This is the version the project is pinned to and the one all
   spike measurements were taken on.
 
+Those spike measurements, and the design decisions they settled, are written up
+in [`docs/`](docs/README.md).
+
 #### Typical Development Workflow:
 
 1. Create and activate the virtual environment:
