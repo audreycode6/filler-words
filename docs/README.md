@@ -19,7 +19,7 @@ one run, which is why it sits apart from any single spike.
 
 ## Design decisions
 
-[`design-decisions.md`](design-decisions.md) holds three:
+[`design-decisions.md`](design-decisions.md) holds four:
 
 - **Choosing what the app counts** — the app counts a list of tracked words,
   meaning the vocabulary someone has decided to drop from their speech, and how
@@ -29,6 +29,8 @@ one run, which is why it sits apart from any single spike.
 - **Holding the totals of one session** — what one stretch of listening keeps,
   which numbers are derived from it, and why the measure of a habit is tracked
   words per minute.
+- **Streaming speech from the microphone** — what the app checks before it
+  starts listening and what it refuses to run without.
 
 ## Writing a spike file
 

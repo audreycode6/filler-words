@@ -162,3 +162,37 @@ one definition each.
   can say it is listening until the first one lands.
 - **Starting again discards what the last session counted.** Nothing is kept
   between sessions. Keeping a history is separate work.
+
+## Streaming speech from the microphone
+
+Settled after [Spike 6](spike-6-on-device-recognition.md), drawing on the runs
+before it. One object, the pipeline, owns the 4 Apple pieces that have to be
+alive together — the audio engine, the tap that copies its input, the
+recognition request the audio is fed to, and the recognition task that returns
+text — because they can only be started and stopped in one order.
+
+- **Authorization is read before anything starts.** Authorization is the
+  system's record of whether this app may use the microphone and may use speech
+  recognition, held separately for each and changed by the person in System
+  Settings. [Spike 1](spike-1-mic-permission.md) found that a denied microphone
+  raises nothing: the engine starts, reports success, and delivers buffers of
+  zeros for as long as it runs. Both statuses are therefore read up front, and
+  an engine is started only when both are granted.
+- **The two statuses are mapped separately.** The frameworks number them
+  differently: for the microphone 1 is restricted and 2 is denied, and for
+  speech recognition they are reversed. Reading one with the other's ordering
+  turns a refusal the person can lift into one they cannot. Each ordering is
+  written down on its own, and when the two disagree the one that blocks is
+  what gets reported, since listening needs both.
+- **Recognition runs on device, and a machine that cannot do it stops rather
+  than falling back.** Falling back to Apple's servers is what the framework
+  does when left alone, so refusing it is the decision, and the cost is that
+  the app will not run at all on a machine without on-device support. That is
+  accepted because [Spike 5](spike-5-long-session-continuity.md) measured the
+  server path ending by itself after about a minute with no error raised, which
+  would count the opening minute of a session and discard the rest.
+- **Nothing holds the microphone between sessions.** The recognition request
+  and the task are built when listening starts and released when it stops, so
+  an app sitting idle in the menu bar leaves no microphone indicator showing. A
+  cancelled task cannot be restarted in any case, so holding one across
+  sessions would make every session after the first a silent one.
