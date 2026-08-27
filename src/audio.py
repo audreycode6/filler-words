@@ -278,8 +278,10 @@ class SpeechPipeline:
 DEFAULT_CHECK_SECONDS = 180
 
 # A gap this long between transcripts, while speech continues, is the failure
-# this check is looking for: recognition stopping without saying so.
-CONTINUITY_GAP_SECONDS = 10
+# this check is looking for: recognition stopping without saying so. Held above
+# the quiet spell before a rollover, measured at 8.5s in a 181-second run, and
+# well under the ~61s at which the server path dies in silence.
+CONTINUITY_GAP_SECONDS = 20
 
 
 def _run_check(seconds):
