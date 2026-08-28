@@ -15,7 +15,14 @@ opposite positions. The values were read back from the installed
 frameworks when this was written.
 """
 
-from audio import AUTHORIZED, DENIED, RESTRICTED, UNDETERMINED, _state_for
+from audio import (
+    AUTHORIZED,
+    DENIED,
+    RESTRICTED,
+    UNDETERMINED,
+    _state_for,
+    _states_for,
+)
 
 # AVAuthorizationStatus -- microphone
 MIC_UNDETERMINED = 0
@@ -76,3 +83,18 @@ def test_an_unrecognized_status_never_reports_authorized():
     # engine is not.
     assert _state_for(MIC_AUTHORIZED, 99) != AUTHORIZED
     assert _state_for(99, SPEECH_AUTHORIZED) != AUTHORIZED
+
+
+# --- naming which permission was refused -------------------------------------
+
+
+def test_the_2_states_are_reported_separately():
+    # The interface has to say which permission was refused: the 2 are granted
+    # on separate System Settings panes.
+    assert _states_for(MIC_DENIED, SPEECH_AUTHORIZED) == (DENIED, AUTHORIZED)
+    assert _states_for(MIC_AUTHORIZED, SPEECH_DENIED) == (AUTHORIZED, DENIED)
+
+
+def test_an_undocumented_status_is_restricted_on_its_own_side():
+    assert _states_for(99, SPEECH_AUTHORIZED) == (RESTRICTED, AUTHORIZED)
+    assert _states_for(MIC_AUTHORIZED, 99) == (AUTHORIZED, RESTRICTED)
