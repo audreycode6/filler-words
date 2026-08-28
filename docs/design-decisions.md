@@ -209,15 +209,18 @@ Settled after [Spike 3](spike-3-thread-safety.md). The status item and its
 dropdown are the whole interface. 2 things are decided here that reading the
 code will not tell you.
 
-- **The interface is drawn from the session every time the menu opens.** It
-  keeps no count of its own. An interface holding a number of its own is a
-  second copy of the count, correct only for as long as every update reaches
-  it, and there is a stretch when none do: an open menu puts the app into an
-  event-tracking mode where work scheduled the ordinary way stops running until
-  the menu closes, reporting nothing. Building the rows as the menu opens
-  leaves nothing that can fall behind. The cost is that an open menu holds
-  still, since the numbers behind it are only read once — the status item title
-  is not part of the menu and does keep moving.
+- **The interface holds no count of its own.** A number kept in the interface
+  is a second copy of the count, correct only for as long as every update
+  reaches it. Every figure is re-read from the session instead: as the menu
+  opens, and again on each refresh while it stays open, so the menu and the
+  status item beside it always agree. An open menu puts the app into an
+  event-tracking mode, so the redraw is dispatched to the main queue, which
+  keeps delivering through that mode. Elapsed time and the rate move between
+  committed segments, so a timer registered in the common run loop modes
+  redraws the open menu once a second.
+  The menu's structure is settled the moment it opens — every event that would
+  add, remove or reorder an item closes the menu to happen — so a redraw writes
+  text into items that are already there and never touches the list itself.
 - **Rows hold the tracked list's order while a session runs, and sort by count
   once it stops.** A row that moves while it is being read is the thing to
   avoid, and during a session the counts change under the reader; afterwards

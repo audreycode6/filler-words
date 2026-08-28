@@ -1,7 +1,8 @@
 """The status item and the menu it drops down.
 
-Every figure shown is read from a Session as the menu opens, so the interface
-holds no count of its own. Nothing here knows about audio: starting, stopping
+Every figure shown is read from a Session as the menu opens and again while it
+stays open, so the interface holds no count of its own. Nothing here knows
+about audio: starting, stopping
 and reading authorization are callables handed in, which is what lets the same
 interface run against canned text with no microphone.
 
@@ -125,6 +126,8 @@ def totals_lines(session):
 SYMBOL_NAME = "mic"
 SYMBOL_FALLBACK = "🎙"
 COUNT_COLUMN_POINTS = 168.0
+MENU_MINIMUM_WIDTH_POINTS = 220.0
+MENU_REDRAW_SECONDS = 1.0
 PRIVACY_SETTINGS_URLS = {
     MICROPHONE: (
         "x-apple.systempreferences:"
@@ -186,11 +189,25 @@ def _secondary_title(text):
     )
 
 
+def _retitle(item, attributed_title):
+    """Write a title onto a menu item, leaving it alone when nothing changed."""
+    current = item.attributedTitle()
+    if current is not None and current.string() == attributed_title.string():
+        return
+    item.setAttributedTitle_(attributed_title)
+
+
 class _Responder(AppKit.NSObject):
     """Receives the menu's delegate messages and its clicks."""
 
     def menuNeedsUpdate_(self, menu):
         self.owner.rebuild(menu)
+
+    def menuWillOpen_(self, menu):
+        self.owner.menu_opened()
+
+    def menuDidClose_(self, menu):
+        self.owner.menu_closed()
 
     def start_(self, sender):
         self.owner.start()
@@ -225,6 +242,8 @@ class MenuBarApp:
         self._on_stop = on_stop
         self._read_authorization = read_authorization
         self._error = None
+        self._live = None
+        self._menu_timer = None
 
         # Before any other AppKit object: spike 3 records the CGSConnectionByID
         # assertion that follows otherwise.
@@ -258,8 +277,9 @@ class MenuBarApp:
         self._app.run()
 
     def refresh(self):
-        """Redraw the status item title from the session."""
+        """Redraw the status item title, and an open menu, from the session."""
         on_main(self._apply_title)
+        on_main(self._apply_open_menu)
 
     def report_error(self, error):
         """Note that recognition reported an error.
@@ -306,6 +326,33 @@ class MenuBarApp:
             Foundation.NSURL.URLWithString_(PRIVACY_SETTINGS_URLS[permission])
         )
 
+    def menu_opened(self):
+        """Start the timer that redraws an open menu once a second.
+
+        Elapsed time and the rate move between committed segments, so an open
+        menu needs a redraw that no segment triggers. The timer runs in the
+        common run loop modes so that it fires while the menu holds the app in
+        event tracking. A stopped session has nothing that moves, so none is
+        started for it.
+        """
+        if self._menu_timer is not None or not self._session.is_active:
+            return
+        self._menu_timer = AppKit.NSTimer.timerWithTimeInterval_repeats_block_(
+            MENU_REDRAW_SECONDS, True, lambda _timer: self._apply_open_menu()
+        )
+        Foundation.NSRunLoop.currentRunLoop().addTimer_forMode_(
+            self._menu_timer, Foundation.NSRunLoopCommonModes
+        )
+
+    def menu_closed(self):
+        """Stop the redraw timer and release the items a closed menu no longer
+        shows.
+        """
+        if self._menu_timer is not None:
+            self._menu_timer.invalidate()
+            self._menu_timer = None
+        self._live = None
+
     # --- drawing ---
 
     def _apply_title(self):
@@ -322,6 +369,20 @@ class MenuBarApp:
             _attributed(text, {AppKit.NSFontAttributeName: font})
         )
 
+    def _apply_open_menu(self):
+        """Re-read every figure into the items an open menu is showing."""
+        if self._live is None:
+            return
+
+        session = self._session
+        header_item, row_items, totals_items = self._live
+
+        _retitle(header_item, _secondary_title(self._error or menu_header(session)))
+        for entry, item in row_items:
+            _retitle(item, _row_title(entry, session.counts[entry]))
+        for item, line in zip(totals_items, totals_lines(session)):
+            _retitle(item, _secondary_title(line))
+
     def rebuild(self, menu):
         """Build the menu as it opens, reading every figure from the session."""
         menu.removeAllItems()
@@ -336,6 +397,7 @@ class MenuBarApp:
         self._add_action(menu, "Quit", b"quit:")
 
     def _build_authorization(self, menu, state, mic_state, speech_state):
+        self._live = None
         header, lines = authorization_lines(state, mic_state, speech_state)
         self._add_note(menu, _secondary_title(header))
         for line in lines:
@@ -358,16 +420,28 @@ class MenuBarApp:
 
     def _build_session(self, menu):
         session = self._session
-        self._add_note(menu, _secondary_title(self._error or menu_header(session)))
+
+        # A menu sizes itself to its widest item, and the totals line grows
+        # over a session. Opening at a width that already fits the longest one
+        # keeps the panel from widening under the cursor.
+        menu.setMinimumWidth_(MENU_MINIMUM_WIDTH_POINTS)
+
+        header_item = self._add_note(
+            menu, _secondary_title(self._error or menu_header(session))
+        )
 
         stopped_with_a_session = not session.is_active and has_run(session)
+        row_items = []
         for entry, count in word_rows(session, ordered_by_count=stopped_with_a_session):
-            self._add_note(menu, _row_title(entry, count))
+            row_items.append((entry, self._add_note(menu, _row_title(entry, count))))
 
+        totals_items = []
         if has_run(session):
             menu.addItem_(AppKit.NSMenuItem.separatorItem())
             for line in totals_lines(session):
-                self._add_note(menu, _secondary_title(line))
+                totals_items.append(self._add_note(menu, _secondary_title(line)))
+
+        self._live = (header_item, row_items, totals_items)
 
         menu.addItem_(AppKit.NSMenuItem.separatorItem())
         if session.is_active:
@@ -382,6 +456,7 @@ class MenuBarApp:
         item.setAttributedTitle_(attributed_title)
         item.setEnabled_(False)
         menu.addItem_(item)
+        return item
 
     def _add_action(self, menu, title, selector):
         item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
@@ -445,9 +520,8 @@ CHECK_TRANSCRIPTS = (
 def _run_check(forced_state, refused_side):
     """Drive the real interface from recorded transcripts, with no microphone.
 
-    Transcripts arrive on a timer in the common run loop modes, so the status
-    item keeps counting while the menu is open. The menu holds the figures it
-    was built with until it is opened again.
+    Transcripts arrive on a timer in the common run loop modes, so both the
+    status item and an open menu keep counting while the menu is on screen.
     """
     from matcher import SegmentTracker, count_tracked
     from session import Session
