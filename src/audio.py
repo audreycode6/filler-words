@@ -75,31 +75,51 @@ class OnDeviceUnavailable(Exception):
     """
 
 
-def _state_for(mic_status, speech_status):
-    """Reduce the 2 authorization statuses to 1 reportable state.
+def _states_for(mic_status, speech_status):
+    """Map each authorization status to a state, keeping the 2 apart.
 
     A status neither framework has documented is treated as RESTRICTED, being
     the closest true thing the app can say: listening is unavailable, and
     asking again will not change it.
     """
-    states = (
+    return (
         _MIC_STATES.get(mic_status, RESTRICTED),
         _SPEECH_STATES.get(speech_status, RESTRICTED),
     )
+
+
+def _state_for(mic_status, speech_status):
+    """Reduce the 2 authorization statuses to 1 reportable state."""
+    states = _states_for(mic_status, speech_status)
 
     for state in _SEVERITY_ORDER:
         if state in states:
             return state
 
 
-def authorization_state():
+def _statuses():
     """Read both authorization statuses now, without prompting for either."""
-    mic_status = AVFoundation.AVCaptureDevice.authorizationStatusForMediaType_(
-        AVFoundation.AVMediaTypeAudio
+    return (
+        AVFoundation.AVCaptureDevice.authorizationStatusForMediaType_(
+            AVFoundation.AVMediaTypeAudio
+        ),
+        Speech.SFSpeechRecognizer.authorizationStatus(),
     )
-    speech_status = Speech.SFSpeechRecognizer.authorizationStatus()
 
-    return _state_for(mic_status, speech_status)
+
+def authorization_state():
+    """The one state the app acts on."""
+    return _state_for(*_statuses())
+
+
+def authorization_detail():
+    """The reported state, then the microphone's own and speech recognition's.
+
+    Read without prompting, as `authorization_state` does.
+    """
+    statuses = _statuses()
+    mic_state, speech_state = _states_for(*statuses)
+    return _state_for(*statuses), mic_state, speech_state
 
 
 def request_authorization(when_decided):

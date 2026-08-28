@@ -196,3 +196,34 @@ text — because they can only be started and stopped in one order.
   an app sitting idle in the menu bar leaves no microphone indicator showing. A
   cancelled task cannot be restarted in any case, so holding one across
   sessions would make every session after the first a silent one.
+- **A refusal names the permission it is about.** The microphone and speech
+  recognition are granted on separate System Settings panes, so a message
+  covering both sends someone to a pane showing a permission already allowed,
+  which reads as the app being broken. The 2 states are already known where
+  they are reduced to the 1 the app acts on, so they are carried through and
+  only the ones actually in that state are named.
+
+## Showing one session in the menu bar
+
+Settled after [Spike 3](spike-3-thread-safety.md). The status item and its
+dropdown are the whole interface. 2 things are decided here that reading the
+code will not tell you.
+
+- **The interface is drawn from the session every time the menu opens.** It
+  keeps no count of its own. An interface holding a number of its own is a
+  second copy of the count, correct only for as long as every update reaches
+  it, and there is a stretch when none do: an open menu puts the app into an
+  event-tracking mode where work scheduled the ordinary way stops running until
+  the menu closes, reporting nothing. Building the rows as the menu opens
+  leaves nothing that can fall behind. The cost is that an open menu holds
+  still, since the numbers behind it are only read once — the status item title
+  is not part of the menu and does keep moving.
+- **Rows hold the tracked list's order while a session runs, and sort by count
+  once it stops.** A row that moves while it is being read is the thing to
+  avoid, and during a session the counts change under the reader; afterwards
+  they cannot. So the running order is fixed and the summary is ranked, which
+  is the order worth having when the numbers are final. Words sharing a count
+  are left in the order the tracked list gives them, since the count alone
+  cannot say which of 2 words on 5 comes first. Otherwise 2 sessions ending on
+  the same counts could list those words differently, and the rows would look
+  shuffled for no visible reason.
