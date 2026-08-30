@@ -27,12 +27,13 @@ one run, which is why it sits apart from any single spike.
 - **Counting tracked words in a revising transcript** — how a count is taken
   from a transcript the recognizer keeps rewriting underneath it.
 - **Holding the totals of one session** — what one stretch of listening keeps,
-  which numbers are derived from it, and why the measure of a habit is tracked
-  words per minute.
+  which numbers are derived from it, and why the measure of a habit is the
+  percentage of spoken words that were tracked ones.
 - **Streaming speech from the microphone** — what the app checks before it
   starts listening and what it refuses to run without.
 - **Showing one session in the menu bar** — where the interface reads its
-  numbers from, and what order the words are listed in.
+  numbers from, what order the words are listed in, and who a refusal is
+  addressed to.
 
 ## Writing a spike file
 

@@ -132,7 +132,7 @@ one definition each.
   an event-tracking mode where work scheduled the ordinary way stops running
   until the menu closes, and a session started again sets the stored counts
   back to 0 while the held number keeps whatever it last showed. Reading every
-  figure off the session each time the menu opens leaves nothing that can fall
+  number off the session each time the menu opens leaves nothing that can fall
   behind.
 - **The word count comes back from the call that counts the tracked words.**
   Both numbers need the segment split into words first, and that split is where
@@ -142,17 +142,18 @@ one definition each.
   definitions that disagree by a little put a number on screen that is wrong by
   a little, which is the hardest kind to notice. Both numbers come back from
   one split, and the session adds them up.
-- **The measure of a habit is tracked words per minute.** 12 of them in
-  half a minute of speech and 12 across 10 minutes are different habits,
-  and a total on its own cannot tell them apart. Elapsed time carries that
-  difference, which is why the session holds a clock at all. The rate is
-  derived where the counts live rather than worked out when a menu opens, so
-  it cannot come out differently in two places that show it.
-- **Stopping freezes the elapsed time.** The rate divides by it, so a summary
-  left open on screen after a session ends would go on falling and read as a
-  live number. Segments still arriving from the recognizer after the stop are
-  dropped for the same reason: what the person is reading must not move
-  underneath them. Anything in flight is counted before the stop or not at all.
+- **The measure of a habit is the percentage of spoken words that were tracked
+  ones.** 12 of them in 200 words and 12 in 2000 are different habits, and a
+  total on its own cannot tell them apart. What carries that difference is how
+  much was said, which the session already counts as each segment commits. A
+  percentage moves only when a segment commits, and cannot exceed the count it
+  is drawn from. It is derived where the counts live rather than worked out
+  when a menu opens, so it cannot come out differently in 2 places that show
+  it.
+- **Stopping freezes the elapsed time.** A stopped session stays on screen as
+  its summary, and a duration climbing inside a summary reads as a live number.
+  What the person is reading must not move underneath them. Anything in flight
+  is counted before the stop or not at all.
 - **A session that has counted nothing is distinguishable from one that has
   counted zero.** A segment takes 12 to 45 seconds to commit, so
   every session has nothing to show for its first stretch. A denied
@@ -206,21 +207,35 @@ text — because they can only be started and stopped in one order.
 ## Showing one session in the menu bar
 
 Settled after [Spike 3](spike-3-thread-safety.md). The status item and its
-dropdown are the whole interface. 2 things are decided here that reading the
+dropdown are the whole interface. 4 things are decided here that reading the
 code will not tell you.
 
 - **The interface holds no count of its own.** A number kept in the interface
   is a second copy of the count, correct only for as long as every update
-  reaches it. Every figure is re-read from the session instead: as the menu
+  reaches it. Every number is re-read from the session instead: as the menu
   opens, and again on each refresh while it stays open, so the menu and the
   status item beside it always agree. An open menu puts the app into an
   event-tracking mode, so the redraw is dispatched to the main queue, which
-  keeps delivering through that mode. Elapsed time and the rate move between
-  committed segments, so a timer registered in the common run loop modes
-  redraws the open menu once a second.
+  keeps delivering through that mode. Elapsed time moves between committed
+  segments while every other number waits for one, so a timer registered in
+  the common run loop modes redraws the open menu once a second.
   The menu's structure is settled the moment it opens — every event that would
   add, remove or reorder an item closes the menu to happen — so a redraw writes
   text into items that are already there and never touches the list itself.
+- **The numbers draw brightest, which takes a view for every item.** The
+  counts, the totals and the percentage are what the menu is opened to read, so
+  they take the strongest text color the system offers and the header above
+  them steps back. AppKit dims the title of any item that cannot be clicked, so
+  each of these is drawn by a view of its own to escape that. Start and Quit
+  are left as the system draws them, and a refusal's explanation is muted along
+  with its header.
+
+  Nothing sizes a menu around a view, so the width is settled before anything
+  is built — the widest word plus a column for its count, or the longest of the
+  lines below the rows — and every item is built to it. That holds the counts
+  in a column and stops the menu widening as the elapsed time grows a digit. A
+  sentence wraps rather than widening it further, and counts are set in a
+  monospaced-digit font.
 - **Rows hold the tracked list's order while a session runs, and sort by count
   once it stops.** A row that moves while it is being read is the thing to
   avoid, and during a session the counts change under the reader; afterwards
@@ -230,3 +245,23 @@ code will not tell you.
   cannot say which of 2 words on 5 comes first. Otherwise 2 sessions ending on
   the same counts could list those words differently, and the rows would look
   shuffled for no visible reason.
+- **A refusal is worded for whoever holds the permission.** macOS grants a
+  permission to the responsible process, which is the application that launched
+  the code rather than the code itself. Run from a source checkout, the entry
+  in the settings pane carries the name of the terminal or editor the launch
+  came from, so a message naming this app sends the reader hunting for a row
+  that the pane does not hold. The wording therefore asks for the permission to
+  be turned on for whichever application ran it. Packaged as its own signed
+  application, this app becomes the responsible process, the pane carries its
+  name, and the message names it. The 2 wordings are chosen by asking whether
+  the main bundle belongs to this app, which is a question with an answer in
+  every launch. Public interfaces cannot report the responsible process from
+  inside the process, and the parent of a running interpreter is often a helper
+  that belongs to no application at all.
+
+  [Spike 2](spike-2-stt-streaming.md) records the sharper edge of the same
+  attribution. Speech authorization raises a TCC error and takes the process
+  down when the responsible application lacks
+  `NSSpeechRecognitionUsageDescription`, which is why the recognizer runs from
+  Terminal and stops under editors missing that key. No message can cover it,
+  since nothing survives to draw one.
