@@ -38,13 +38,13 @@ def test_a_fresh_session_is_inactive_and_reports_zeros():
     assert session.elapsed_seconds == 0.0
 
 
-def test_the_rate_is_zero_before_any_time_has_elapsed():
-    # The interface asks for the rate on its first render, before the clock has
-    # moved. Dividing by that elapsed time is a crash.
+def test_the_percentage_is_zero_before_any_word_is_spoken():
+    # The interface asks for the percentage on its first render, before a
+    # segment has committed. Dividing by those 0 words is a crash.
     session = Session(["like"], clock=FakeClock())
     session.start()
 
-    assert session.tracked_rate == 0.0
+    assert session.tracked_percentage == 0.0
 
 
 # --- starting ----------------------------------------------------------------
@@ -121,10 +121,8 @@ def test_the_count_never_decrements():
 
 
 def test_no_segment_is_counted_between_the_start_and_the_first_rollover():
-    # A segment runs 12 to 45 seconds, so a session that has just started
-    # genuinely has nothing to show yet. The interface says it is listening
-    # rather than showing a zero, because the silent zeros a denied microphone
-    # returns look exactly the same.
+    # A segment runs 12 to 45 seconds, so a session that has just started has
+    # nothing to show yet.
     session = Session(["like"])
     session.start()
 
@@ -135,39 +133,47 @@ def test_no_segment_is_counted_between_the_start_and_the_first_rollover():
     assert session.segments_counted == 1
 
 
-# --- the rate ----------------------------------------------------------------
+# --- the percentage ----------------------------------------------------------
 
 
-def test_the_rate_is_tracked_words_per_minute_of_elapsed_time():
+def test_the_percentage_is_tracked_words_out_of_words_spoken():
+    session = Session(["like"], clock=FakeClock())
+    session.start()
+
+    session.record({"like": 12}, 300)
+
+    assert session.tracked_percentage == 4.0
+
+
+def test_a_quiet_stretch_does_not_move_the_percentage():
     clock = FakeClock()
     session = Session(["like"], clock=clock)
     session.start()
 
     session.record({"like": 12}, 300)
-    clock.advance(120.0)
+    steady = session.tracked_percentage
+    clock.advance(600.0)
 
-    assert session.elapsed_seconds == 120.0
-    assert session.tracked_rate == 6.0
+    assert session.elapsed_seconds == 600.0
+    assert session.tracked_percentage == steady
 
 
-def test_the_rate_falls_as_a_quiet_session_runs_on():
-    # The same 12 matches across 4 minutes rather than 2. A bare total would
-    # make those two sessions indistinguishable, which is the whole reason the
-    # rate exists.
-    clock = FakeClock()
-    session = Session(["like"], clock=clock)
+def test_the_percentage_cannot_exceed_the_words_it_divides():
+    # A percentage is bounded by the words it divides: the tracked words are
+    # counted out of the words spoken, so it cannot climb past all of them.
+    session = Session(["like"], clock=FakeClock())
     session.start()
 
-    session.record({"like": 12}, 300)
-    clock.advance(240.0)
+    session.record({"like": 26}, 43)
 
-    assert session.tracked_rate == 3.0
+    assert session.tracked_percentage <= 100.0
+    assert round(session.tracked_percentage, 1) == 60.5
 
 
 # --- stopping ----------------------------------------------------------------
 
 
-def test_the_rate_stops_moving_once_the_session_is_stopped():
+def test_a_summary_holds_still_once_the_session_is_stopped():
     clock = FakeClock()
     session = Session(["like"], clock=clock)
     session.start()
@@ -175,12 +181,13 @@ def test_the_rate_stops_moving_once_the_session_is_stopped():
     clock.advance(120.0)
 
     session.stop()
-    frozen = session.tracked_rate
+    frozen = session.tracked_percentage
     clock.advance(600.0)
+    session.record({"like": 40}, 60)
 
     assert session.is_active is False
     assert session.elapsed_seconds == 120.0
-    assert session.tracked_rate == frozen
+    assert session.tracked_percentage == frozen
 
 
 def test_a_segment_arriving_after_the_stop_changes_nothing():
@@ -216,10 +223,9 @@ def test_stopping_twice_is_harmless():
 
 
 def test_a_session_fed_a_replayed_run_reports_the_totals():
-    # The whole path with no microphone: whole transcripts into the tracker,
-    # committed segments into the matcher, matcher output into the session.
-    # docs/spike-6-on-device-recognition.md ran for 5 minutes, which is the
-    # elapsed time the rate is taken over here.
+    # The whole path with no microphone simulating 5 min session:
+    # whole transcripts into the tracker, committed segments into the matcher,
+    # matcher output into the session.
     tracked = ["like", "counting"]
     clock = FakeClock()
     session = Session(tracked, clock=clock)
@@ -239,4 +245,4 @@ def test_a_session_fed_a_replayed_run_reports_the_totals():
     assert session.counts == {"like": 21, "counting": 1}
     assert session.total_word_count == 522
     assert session.total_tracked_count == 22
-    assert session.tracked_rate == 4.4
+    assert round(session.tracked_percentage, 1) == 4.2

@@ -12,6 +12,7 @@ shipped list, so that changing what the app tracks changes no test here.
 from menubar import (
     AUTHORIZED,
     DENIED,
+    ERROR_HEADER,
     IDLE_HEADER,
     RESTRICTED,
     SUMMARY_HEADER,
@@ -122,6 +123,20 @@ def test_a_session_that_committed_nothing_still_reads_as_a_summary():
     assert menu_header(session) == SUMMARY_HEADER
 
 
+def test_recognition_having_stopped_outranks_every_other_header():
+    # The recognizer can stop on its own while the session still calls itself
+    # active, leaving every number below the header standing still.
+    session = a_session(["like"])
+    session.start()
+    session.record({"like": 3}, 40)
+
+    assert menu_header(session, errored=True) == ERROR_HEADER
+
+    session.stop()
+
+    assert menu_header(session, errored=True) == ERROR_HEADER
+
+
 # --- the rows ----------------------------------------------------------------
 
 
@@ -186,8 +201,8 @@ def test_the_totals_name_every_number_they_carry():
     clock.advance(247.0)
 
     assert totals_lines(session) == (
-        "12 tracked of 604 spoken",
-        "4:07 elapsed · 2.9 tracked/min",
+        "12 of 604 words tracked (2.0%)",
+        "4:07 elapsed",
     )
 
 
@@ -209,35 +224,60 @@ def test_the_totals_hold_still_once_the_session_stops():
 
 
 def test_a_refusal_names_only_the_permission_that_was_refused():
+    # Each permission is capitalized as the settings pane it names spells it.
     assert authorization_lines(DENIED, DENIED, AUTHORIZED) == (
         "Access denied",
-        ("Verbal Habits needs microphone access.",),
+        ("Verbal Habits needs Microphone access.",),
     )
     assert authorization_lines(DENIED, AUTHORIZED, DENIED) == (
         "Access denied",
-        ("Verbal Habits needs speech recognition access.",),
+        ("Verbal Habits needs Speech Recognition access.",),
     )
 
 
 def test_both_permissions_are_named_when_both_were_refused():
     assert authorization_lines(DENIED, DENIED, DENIED) == (
         "Access denied",
-        ("Verbal Habits needs microphone and speech recognition access.",),
+        ("Verbal Habits needs Microphone and Speech Recognition access.",),
+    )
+
+
+def test_a_refusal_from_source_points_at_the_app_that_launched_it():
+    # Unbundled, the permission belongs to whichever app ran this code, and
+    # that app is what the settings pane lists.
+    assert authorization_lines(DENIED, DENIED, AUTHORIZED, bundled=False) == (
+        "Access denied",
+        ("Turn on Microphone for the app you launched Verbal Habits from.",),
+    )
+
+
+def test_a_refusal_from_source_names_both_permissions_in_one_sentence():
+    assert authorization_lines(DENIED, DENIED, DENIED, bundled=False) == (
+        "Access denied",
+        (
+            "Turn on Microphone and Speech Recognition for the app you"
+            " launched Verbal Habits from.",
+        ),
     )
 
 
 def test_a_restriction_is_worded_as_something_nobody_can_grant():
-    assert authorization_lines(RESTRICTED, RESTRICTED, AUTHORIZED) == (
+    restricted = (
         "Access restricted",
         ("This Mac does not allow microphone access.",),
+    )
+
+    assert authorization_lines(RESTRICTED, RESTRICTED, AUTHORIZED) == restricted
+    assert (
+        authorization_lines(RESTRICTED, RESTRICTED, AUTHORIZED, bundled=False)
+        == restricted
     )
 
 
 def test_a_permission_nobody_has_been_asked_for_is_not_named():
     # The microphone is denied and speech recognition has not been asked for.
     # Denied is the worse of the 2 and is what the app reports, so the message
-    # names the microphone alone. Naming both would accuse speech recognition
-    # of a refusal and send someone to a pane where nothing is wrong.
+    # names the microphone alone.
     from audio import UNDETERMINED
 
     assert refused_permissions(DENIED, DENIED, UNDETERMINED) == ["microphone"]

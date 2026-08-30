@@ -6,16 +6,14 @@ per-entry counts, the number of words spoken, how many segments have been
 counted, and how long it has been running. Everything the menu shows is
 either one of those or derived here from them.
 
-The rate is derived here rather than at display time so that one definition
-exists in one place. Nothing in this module knows what a transcript is: it is
-handed what `matchers.py`'s `count_tracked` returned and never sees text.
+The percentage is derived here. Nothing in this module knows what a transcript
+is: it is handed what `matchers.py`'s `count_tracked` returned and never sees
+text.
 
 docs/design-decisions.md carries the reasoning behind this design.
 """
 
 import time
-
-SECONDS_PER_MINUTE = 60.0
 
 
 class Session:
@@ -64,10 +62,7 @@ class Session:
         self.segments_counted += 1
 
     def stop(self):
-        """End the session, holding the elapsed time where it stands.
-
-        The rate is taken over elapsed time.
-        """
+        """End the session, holding the elapsed time where it stands."""
         if not self.is_active:
             return
 
@@ -88,13 +83,13 @@ class Session:
         return self._clock() - self._started_at
 
     @property
-    def tracked_rate(self):
-        """Tracked words per minute of the session so far.
+    def tracked_percentage(self):
+        """What percentage of the words spoken were tracked ones.
 
-        A session with no time behind it yet rates zero.
+        A session that has heard no words yet is at zero.
         """
-        elapsed = self.elapsed_seconds
-        if elapsed <= 0:
+        spoken = self.total_word_count
+        if spoken <= 0:
             return 0.0
 
-        return self.total_tracked_count / (elapsed / SECONDS_PER_MINUTE)
+        return self.total_tracked_count / spoken * 100
