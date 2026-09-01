@@ -9,6 +9,7 @@ docs/design-decisions.md carries the reasoning behind this design.
 """
 
 import logging
+import os
 import sys
 
 import audio
@@ -20,6 +21,11 @@ from session import Session
 # Diagnostics go to the terminal that launched the app.
 LOG_FORMAT = "%(asctime)s %(name)s %(levelname)s %(message)s"
 LOG_TIME_FORMAT = "%H:%M:%S"
+
+# Set in the environment to log every transcript through the app.
+DEBUG_VARIABLE = "VERBAL_HABITS_DEBUG"
+
+logger = logging.getLogger(__name__)
 
 
 class VerbalHabits:
@@ -40,6 +46,8 @@ class VerbalHabits:
         self._tracked_words = tracked_words
         self._session = Session(self._tracked_words)
         self._tracker = SegmentTracker()
+        self._folds = 0
+        self._commits = 0
 
         self._pipeline = build_pipeline(
             self._took_transcript, on_error=self._took_error
@@ -109,8 +117,13 @@ class VerbalHabits:
         Runs on the main thread, so the totals are written on the thread they
         are read from.
         """
+        self._folds += 1
+        logger.debug("fold %d, %d characters", self._folds, len(transcript))
+
         segment = self._tracker.update(transcript)
         if segment is not None:
+            self._commits += 1
+            logger.debug("commit %d, %d characters", self._commits, len(segment))
             self._session.record(*count_tracked(segment, self._tracked_words))
 
         self._menu.refresh()
@@ -118,7 +131,7 @@ class VerbalHabits:
 
 def main():
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG if os.environ.get(DEBUG_VARIABLE) else logging.INFO,
         format=LOG_FORMAT,
         datefmt=LOG_TIME_FORMAT,
         stream=sys.stderr,
