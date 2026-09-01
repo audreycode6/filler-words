@@ -4,13 +4,12 @@ Entries are lowercase and may be more than one word. Matching takes the longest
 entry that fits before looking for the next one, so a phrase and a word inside
 it can both appear here.
 
-These entries are provisional until each has been spoken into the recognizer and
-the output read back. A word it mishandles counts 0 for the life of the app,
+Each entry here has been spoken into the recognizer and its output read back.
+An entry the recognizer mishandles counts 0 for the life of the app,
 while the matcher stays correct and every test passes.
 """
 
 TRACKED_WORDS = (
-    "bruh",
     "bro",
     "vibe",
     "to be honest",
@@ -18,4 +17,5 @@ TRACKED_WORDS = (
     "stuff",
     "fuck",
     "just",
+    "stupid",
 )
