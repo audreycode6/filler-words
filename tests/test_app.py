@@ -2,8 +2,11 @@
 
 Each piece is covered by its own tests. What is tested here is the order the
 callbacks run in: that the last thing said before a stop is still counted, that
-a new session counts nothing from the one before it, and that the error a
-cancelled task reports stays out of the menu.
+a new session counts nothing from the one before it, and that a recognition
+error ends the session it belonged to.
+
+Which task an error came from is settled in `audio.py`, where a stopped
+pipeline retires its task before cancelling it, and is covered there.
 
 These tests open no microphone and build no AppKit object. The pipeline and the
 menu are taken by the app as callables that build them, so each test hands in a
@@ -34,7 +37,8 @@ class FakeMenu:
         self._on_start = on_start
         self._on_stop = on_stop
         self.refreshes = 0
-        self.errors = []
+        self.errored = False
+        self.errors_reported = 0
 
     def start(self):
         state = self._on_start()
@@ -51,14 +55,18 @@ class FakeMenu:
     def refresh(self):
         self.refreshes += 1
 
-    def report_error(self, error):
-        self.errors.append(str(error))
+    def recognition_failed(self):
+        self.errored = True
+        self.errors_reported += 1
+        self._on_stop()
+        self.session.stop()
 
 
 class FakePipeline:
     """Stands in for SpeechPipeline, taking the callbacks and counting stops.
 
-    Stopping reports an error, as cancelling a real recognition task does.
+    A stopped pipeline delivers nothing, which is what the real one does once
+    it has retired the task it cancels.
     """
 
     def __init__(self, on_transcript, on_error=None, state=audio.AUTHORIZED):
@@ -74,8 +82,6 @@ class FakePipeline:
 
     def stop(self):
         self.stops += 1
-        if self.on_error is not None:
-            self.on_error("the recognition task was cancelled")
 
 
 def build():
@@ -140,22 +146,32 @@ def test_the_segment_still_open_folds_into_the_totals_on_a_stop(authorized):
     assert verbal._pipeline.stops == 1
 
 
-def test_the_error_a_cancelled_task_reports_stays_out_of_the_menu(authorized):
-    verbal = build()
-    verbal._menu.start()
-
-    verbal._menu.stop()
-
-    assert verbal._menu.errors == []
+# --- an error ends the session -----------------------------------------------
 
 
-def test_an_error_while_listening_reaches_the_menu(authorized):
+def test_an_error_reaches_the_menu(authorized):
     verbal = build()
     verbal._menu.start()
 
     verbal._pipeline.on_error("recognition stopped")
 
-    assert verbal._menu.errors == ["recognition stopped"]
+    assert verbal._menu.errored
+    assert verbal._menu.errors_reported == 1
+
+
+def test_an_error_ends_the_session(authorized):
+    # A session that dropped speech under-counts, and a low count reads as an
+    # improvement.
+    verbal = build()
+    verbal._menu.start()
+    verbal._pipeline.on_transcript("well and bro")
+
+    verbal._pipeline.on_error("recognition stopped")
+
+    assert not verbal._session.is_active
+    assert verbal._pipeline.stops == 1
+    # The segment still open is counted, as it is on a chosen stop.
+    assert verbal._session.counts == {"well": 1, "bro": 1}
 
 
 # --- starting again ----------------------------------------------------------
