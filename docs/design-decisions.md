@@ -32,6 +32,12 @@ make countable.
   the words it used before looking for the next one. Against a list holding
   only single words this behaves identically, which makes the capability free
   to keep.
+- **One habit is counted under one name, with its other forms listed beside
+  it.** A form is another way of saying the same word — "vibe" gathering
+  "vibes" and "vibing". So the list maps a name to its other forms, and
+  the counts come back keyed by the name, giving the menu one row for the
+  habit. Which forms belong to a habit is a choice about vocabulary, made by
+  whoever edits the list.
 - **The list is editable where it is written and fixed where it is used.**
   Editing it in source is how the list changes, which makes it configuration
   without an interface having to be built for it. Anyone running what was
@@ -40,7 +46,7 @@ make countable.
   curated default comes first, because it is the least that proves the matching
   pipeline end to end, and supplying words some other way changes only where
   they come from.
-- **An entry earns its place by being spoken into the recognizer.** A word the
+- **Every form earns its place by being spoken into the recognizer.** A word the
   recognizer will not return counts 0 for the life of the app, while the matcher
   stays correct and every test passes. Nothing exposes which words the model
   holds, so speaking one is the only way to find out: `python src/audio.py`
