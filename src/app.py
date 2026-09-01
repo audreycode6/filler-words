@@ -37,7 +37,7 @@ class VerbalHabits:
         build_pipeline=audio.SpeechPipeline,
         build_menu=MenuBarApp,
     ):
-        self._tracked_words = tuple(tracked_words)
+        self._tracked_words = tracked_words
         self._session = Session(self._tracked_words)
         self._tracker = SegmentTracker()
 

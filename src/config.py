@@ -1,21 +1,34 @@
 """The vocabulary the app counts. Editing this file is how the list changes.
 
-Entries are lowercase and may be more than one word. Matching takes the longest
-entry that fits before looking for the next one, so a phrase and a word inside
-it can both appear here.
+Each key is the name a habit is counted under, and the value holds the other
+forms counted toward it. Names and forms are lowercase and may be more than one
+word. Matching takes the longest form that fits before looking for the next one,
+so a phrase and a word inside it can both appear here.
 
-Each entry here has been spoken into the recognizer and its output read back.
-An entry the recognizer mishandles counts 0 for the life of the app,
+Each form here has been spoken into the recognizer and its output read back.
+A form the recognizer mishandles counts 0 for the life of the app,
 while the matcher stays correct and every test passes.
 """
 
-TRACKED_WORDS = (
-    "bro",
-    "vibe",
-    "to be honest",
-    "well",
-    "stuff",
-    "fuck",
-    "just",
-    "stupid",
-)
+TRACKED_WORDS = {
+    "bro": (),
+    "vibe": (
+        "vibes",
+        "vibing",
+    ),
+    "to be honest": (),
+    "well": (),
+    "stuff": (),
+    "fuck": (
+        "fucking",
+        "fucked",
+        "fucker",
+        "motherfucker",
+        "fucks",
+    ),
+    "just": (),
+    "stupid": (
+        "stupidest",
+        "stupidly",
+    ),
+}
