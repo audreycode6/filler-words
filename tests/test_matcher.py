@@ -56,6 +56,47 @@ def test_every_tracked_word_is_reported_even_at_zero():
     assert counts == {"bruh": 0, "vibe": 0}
 
 
+# --- one habit under one name ------------------------------------------------
+
+
+def test_every_form_of_a_habit_counts_under_its_name():
+    counts, _ = count_tracked("vibes are a vibe and I am vibing", {"vibe": ("vibes", "vibing")})
+
+    assert counts == {"vibe": 3}
+
+
+def test_a_habit_with_no_other_forms_counts_as_the_name_alone():
+    counts, _ = count_tracked("well, well", {"well": ()})
+
+    assert counts == {"well": 2}
+
+
+def test_a_plain_list_of_words_counts_as_it_did():
+    counts, _ = count_tracked("vibes are a vibe", ["vibe", "vibes"])
+
+    assert counts == {"vibe": 1, "vibes": 1}
+
+
+def test_every_habit_is_reported_even_at_zero():
+    counts, _ = count_tracked("nothing to see", {"bruh": (), "vibe": ("vibes",)})
+
+    assert counts == {"bruh": 0, "vibe": 0}
+
+
+def test_a_word_containing_a_form_does_not_match_it():
+    counts, _ = count_tracked("brothers vibrate", {"bro": ("bros",), "vibe": ("vibes",)})
+
+    assert counts == {"bro": 0, "vibe": 0}
+
+
+def test_a_multi_word_form_counts_under_its_name():
+    counts, _ = count_tracked(
+        "honestly I have no idea, to be honest", {"to be honest": ("honestly",)}
+    )
+
+    assert counts == {"to be honest": 2}
+
+
 def test_the_word_count_covers_ordinary_recognizer_output():
     # docs/spike-4-filler-word-preservation.md, the settled run 2 transcript.
     counts, word_count = count_tracked(transcripts.SPIKE4_SETTLED, ["like"])
@@ -172,6 +213,13 @@ def test_replaying_the_logged_run_emits_one_segment_per_rollover():
 def test_the_shipped_word_list_is_well_formed():
     assert config.TRACKED_WORDS
 
-    for word in config.TRACKED_WORDS:
-        assert word == word.strip().lower()
-        assert word
+    seen = set()
+    for name, others in config.TRACKED_WORDS.items():
+        # A bare string here reads as a tuple of its letters.
+        assert isinstance(others, tuple)
+
+        for form in (name, *others):
+            assert form == form.strip().lower()
+            assert form
+            assert form not in seen
+            seen.add(form)

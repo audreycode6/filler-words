@@ -33,29 +33,48 @@ def _tokenize(text):
     return tokens
 
 
-def count_tracked(text, tracked_words):
-    """Count each tracked entry in one segment's text.
+def _forms(tracked_words):
+    """Pair each habit's name with every form counted toward it.
 
-    Returns the per-entry counts and the segment's word count. The word count is
-    taken here because this is where the text has already been split, and the
-    running total belongs to the session.
-
-    Every tracked entry appears in the returned counts, including the ones that
-    did not occur -- callers never have to branch on a missing key.
+    Takes either a mapping of name to its other forms, or a plain sequence of
+    words, where each word is a habit of one form.
     """
-    phrases = {tuple(_tokenize(entry)): entry for entry in tracked_words}
+    if hasattr(tracked_words, "items"):
+        return {name: (name, *others) for name, others in tracked_words.items()}
+
+    return {entry: (entry,) for entry in tracked_words}
+
+
+def count_tracked(text, tracked_words):
+    """Count each habit in one segment's text.
+
+    Returns the counts keyed by habit name and the segment's word count. Every
+    form of a habit adds to the one name, so the count describes the habit
+    rather than any single way of saying it. The word count is taken here
+    because this is where the text has already been split, and the running
+    total belongs to the session.
+
+    Every habit appears in the returned counts, including the ones that did not
+    occur -- callers never have to branch on a missing key.
+    """
+    habits = _forms(tracked_words)
+    phrases = {
+        tuple(_tokenize(form)): name
+        for name, forms in habits.items()
+        for form in forms
+    }
     longest = max((len(phrase) for phrase in phrases), default=0)
 
-    counts = {entry: 0 for entry in tracked_words}
+    counts = {name: 0 for name in habits}
     tokens = _tokenize(text)
 
     position = 0
     while position < len(tokens):
         # Longest first
         for length in range(min(longest, len(tokens) - position), 0, -1):
-            entry = phrases.get(tuple(tokens[position : position + length]))
-            if entry is not None:
-                counts[entry] += 1
+            name = phrases.get(tuple(tokens[position : position + length]))
+            if name is not None:
+                counts[name] += 1
                 position += length
                 break
         else:
