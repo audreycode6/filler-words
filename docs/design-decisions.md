@@ -40,6 +40,12 @@ make countable.
   curated default comes first, because it is the least that proves the matching
   pipeline end to end, and supplying words some other way changes only where
   they come from.
+- **An entry earns its place by being spoken into the recognizer.** A word the
+  recognizer will not return counts 0 for the life of the app, while the matcher
+  stays correct and every test passes. Nothing exposes which words the model
+  holds, so speaking one is the only way to find out: `python src/audio.py`
+  prints what came back for each, and the running app shows whether the count
+  moves.
 - **Letting someone else build a list is deferred.** A word the recognizer
   mishandles counts zero for the life of the app with nothing indicating why.
   The check that catches this works because the person choosing the words is
@@ -236,6 +242,7 @@ code will not tell you.
   in a column and stops the menu widening as the elapsed time grows a digit. A
   sentence wraps rather than widening it further, and counts are set in a
   monospaced-digit font.
+
 - **Rows hold the tracked list's order while a session runs, and sort by count
   once it stops.** A row that moves while it is being read is the thing to
   avoid, and during a session the counts change under the reader; afterwards
