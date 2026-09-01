@@ -24,7 +24,8 @@ IDLE_HEADER = "Tracked Words"
 TRANSCRIBING_HEADER = "Transcribing…"
 TRACKING_HEADER = "Tracking"
 SUMMARY_HEADER = "Session Summary"
-ERROR_HEADER = "Recognition Stopped"
+ERROR_HEADER = "Speech Recognition Failed"
+ERROR_GUIDANCE = "The session stopped early. Start begins a new session."
 
 # The states audio.py reports, copied here so this module imports no Apple
 # speech framework. A test holds the 2 sets together. The app prompts for an
@@ -131,6 +132,8 @@ def totals_lines(session):
 
 SYMBOL_NAME = "mic"
 SYMBOL_FALLBACK = "🎙"
+ERROR_SYMBOL_NAME = "exclamationmark.triangle"
+ERROR_SYMBOL_FALLBACK = "⚠"
 MENU_MINIMUM_WIDTH_POINTS = 220.0
 MENU_REDRAW_SECONDS = 1.0
 ITEM_INSET_POINTS = 14.0  # left and right margin on an item
@@ -153,6 +156,17 @@ PRIVACY_SETTINGS_URLS = {
 def on_main(work):
     """Run work on the main thread."""
     dispatch.dispatch_async(dispatch.dispatch_get_main_queue(), work)
+
+
+def _symbol(name, description):
+    """One template image from the system symbol of that name, or None."""
+    image = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(
+        name, description
+    )
+    if image is not None:
+        image.setTemplate_(True)
+
+    return image
 
 
 def _attributed(text, attributes):
@@ -391,7 +405,7 @@ class MenuBarApp:
         self._on_start = on_start
         self._on_stop = on_stop
         self._read_authorization = read_authorization
-        self._error = None
+        self._errored = False
         self._live = None
         self._menu_timer = None
 
@@ -406,13 +420,11 @@ class MenuBarApp:
         self._status_item = AppKit.NSStatusBar.systemStatusBar().statusItemWithLength_(
             AppKit.NSVariableStatusItemLength
         )
-        self._symbol = (
-            AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(
-                SYMBOL_NAME, "Verbal Habits"
-            )
+        self._symbol = _symbol(SYMBOL_NAME, "Verbal Habits")
+        self._error_symbol = _symbol(
+            ERROR_SYMBOL_NAME, "Verbal Habits: recognition stopped"
         )
         if self._symbol is not None:
-            self._symbol.setTemplate_(True)
             self._status_item.button().setImage_(self._symbol)
             self._status_item.button().setImagePosition_(AppKit.NSImageLeft)
 
@@ -431,12 +443,16 @@ class MenuBarApp:
         on_main(self._apply_title)
         on_main(self._apply_open_menu)
 
-    def report_error(self, error):
-        """Note that recognition reported an error.
+    def recognition_failed(self):
+        """End the session, and show that recognition is what ended it."""
+        self._errored = True
+        if self._session.is_active:
+            self._on_stop()
+            self._session.stop()
 
-        The menu carries it as its header the next time it opens.
-        """
-        self._error = str(error)
+        # An open menu holds the items it was built with, so it would keep
+        # offering Stop for a session that has ended.
+        self._menu.cancelTracking()
         self.refresh()
 
     # --- actions ---
@@ -460,11 +476,13 @@ class MenuBarApp:
             # on_start owns requesting authorization.
             return
 
-        self._error = None
+        self._errored = False
         self._session.start()
         self.refresh()
 
     def stop(self):
+        if not self._session.is_active:
+            return
         if not self._confirm_stop():
             return
         self._on_stop()
@@ -503,11 +521,16 @@ class MenuBarApp:
     # --- drawing ---
 
     def _apply_title(self):
+        symbol = self._error_symbol if self._errored else self._symbol
+        if symbol is not None:
+            self._status_item.button().setImage_(symbol)
+
         text = status_title(self._session)
-        if self._symbol is None and text:
-            text = f"{SYMBOL_FALLBACK} {text}"
-        elif self._symbol is None:
-            text = SYMBOL_FALLBACK
+        fallback = ERROR_SYMBOL_FALLBACK if self._errored else SYMBOL_FALLBACK
+        if symbol is None and text:
+            text = f"{fallback} {text}"
+        elif symbol is None:
+            text = fallback
 
         font = AppKit.NSFont.monospacedDigitSystemFontOfSize_weight_(
             AppKit.NSFont.systemFontSize(), AppKit.NSFontWeightRegular
@@ -526,7 +549,7 @@ class MenuBarApp:
 
         _set_item_text(
             header_item,
-            _header_title(menu_header(session, self._error is not None)),
+            _header_title(menu_header(session, self._errored)),
         )
         # A row's word never changes, so only the count at index 1 is written.
         for entry, item in row_items:
@@ -594,10 +617,12 @@ class MenuBarApp:
         header_item = self._add_item(
             menu,
             _note_view(
-                _header_title(menu_header(session, self._error is not None)),
+                _header_title(menu_header(session, self._errored)),
                 width,
             ),
         )
+        if self._errored:
+            self._add_item(menu, _wrapped_view(_muted_title(ERROR_GUIDANCE), width))
 
         row_items = []
         for entry, count in rows:
@@ -665,6 +690,9 @@ CHECK_INTERVAL_SECONDS = 0.4
 
 CHECK_WORDS = ("like", "the", "it", "words", "again", "end")
 
+# How many segments commit before the error check reports one.
+CHECK_ERROR_AFTER_SEGMENTS = 2
+
 # 4 segments, each arriving as the whole transcript so far, the way the
 # recognizer delivers them. A short opening collapses the one before it, which
 # is what commits a segment.
@@ -688,11 +716,13 @@ CHECK_TRANSCRIPTS = (
 )
 
 
-def _run_check(forced_state, refused_side):
+def _run_check(forced_state, refused_side, report_error=False):
     """Drive the real interface from recorded transcripts, with no microphone.
 
     Transcripts arrive on a timer in the common run loop modes, so both the
     status item and an open menu keep counting while the menu is on screen.
+
+    `report_error` reports an error partway through the replay.
     """
     from matcher import SegmentTracker, count_tracked
     from session import Session
@@ -700,20 +730,37 @@ def _run_check(forced_state, refused_side):
     session = Session(CHECK_WORDS)
     tracker = SegmentTracker()
     replay = iter(CHECK_TRANSCRIPTS)
+    reported = False
 
     mic_state = forced_state if refused_side in ("microphone", "both") else AUTHORIZED
     speech_state = forced_state if refused_side in ("speech", "both") else AUTHORIZED
 
+    def started():
+        """Start over the way the app does, on a tracker that has seen nothing."""
+        nonlocal tracker, replay, reported
+        tracker = SegmentTracker()
+        replay = iter(CHECK_TRANSCRIPTS)
+        reported = False
+        return forced_state
+
     app = MenuBarApp(
         session,
-        on_start=lambda: forced_state,
+        on_start=started,
         on_stop=lambda: None,
         read_authorization=lambda: (forced_state, mic_state, speech_state),
     )
 
     def feed(_timer):
+        nonlocal reported
         if not session.is_active:
             return
+        if (
+            report_error
+            and not reported
+            and session.segments_counted == CHECK_ERROR_AFTER_SEGMENTS
+        ):
+            app.recognition_failed()
+            reported = True
         try:
             transcript = next(replay)
         except StopIteration:
@@ -736,6 +783,8 @@ def _run_check(forced_state, refused_side):
     )
 
     print(f"Reporting authorization as {forced_state}. Open the menu bar item.")
+    if report_error:
+        print(f"Reporting an error after {CHECK_ERROR_AFTER_SEGMENTS} segments.")
     app.run()
     return 0
 
@@ -744,6 +793,8 @@ if __name__ == "__main__":
     import sys
 
     # python src/menubar.py [authorized|denied|restricted] [microphone|speech|both]
-    requested = sys.argv[1] if len(sys.argv) > 1 else AUTHORIZED
-    side = sys.argv[2] if len(sys.argv) > 2 else "both"
-    sys.exit(_run_check(requested, side))
+    # Add "error" to report one partway through the replay.
+    arguments = [argument for argument in sys.argv[1:] if argument != "error"]
+    requested = arguments[0] if arguments else AUTHORIZED
+    side = arguments[1] if len(arguments) > 1 else "both"
+    sys.exit(_run_check(requested, side, report_error="error" in sys.argv[1:]))

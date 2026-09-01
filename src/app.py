@@ -8,6 +8,7 @@ who calls whom.
 docs/design-decisions.md carries the reasoning behind this design.
 """
 
+import logging
 import sys
 
 import audio
@@ -15,6 +16,10 @@ from config import TRACKED_WORDS
 from matcher import SegmentTracker, count_tracked
 from menubar import MenuBarApp, on_main
 from session import Session
+
+# Diagnostics go to the terminal that launched the app.
+LOG_FORMAT = "%(asctime)s %(name)s %(levelname)s %(message)s"
+LOG_TIME_FORMAT = "%H:%M:%S"
 
 
 class VerbalHabits:
@@ -35,7 +40,6 @@ class VerbalHabits:
         self._tracked_words = tuple(tracked_words)
         self._session = Session(self._tracked_words)
         self._tracker = SegmentTracker()
-        self._listening = False
 
         self._pipeline = build_pipeline(
             self._took_transcript, on_error=self._took_error
@@ -70,16 +74,10 @@ class VerbalHabits:
         # A fresh tracker, so the first transcript of this session is compared
         # against nothing.
         self._tracker = SegmentTracker()
-        self._listening = True
-        try:
-            return self._pipeline.start()
-        except Exception:
-            self._listening = False
-            raise
+        return self._pipeline.start()
 
     def _stop_listening(self):
         """Stop listening, folding in the segment still open."""
-        self._listening = False
         self._pipeline.stop()
 
         segment = self._tracker.flush()
@@ -100,10 +98,9 @@ class VerbalHabits:
         """Take one transcript from the recognizer, on whatever thread it came in on."""
         on_main(lambda: self._fold(transcript))
 
-    def _took_error(self, error):
-        """Report an error from the recognizer to the menu while a session listens."""
-        if self._listening:
-            on_main(lambda: self._menu.report_error(error))
+    def _took_error(self, _error):
+        """End the session on a recognition error, which audio.py has written out."""
+        on_main(self._menu.recognition_failed)
 
     def _fold(self, transcript):
         """Count whatever segment this transcript finished, then have the menu
@@ -120,6 +117,12 @@ class VerbalHabits:
 
 
 def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format=LOG_FORMAT,
+        datefmt=LOG_TIME_FORMAT,
+        stream=sys.stderr,
+    )
     VerbalHabits().run()
     return 0
 
