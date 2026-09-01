@@ -213,7 +213,7 @@ text — because they can only be started and stopped in one order.
 ## Showing one session in the menu bar
 
 Settled after [Spike 3](spike-3-thread-safety.md). The status item and its
-dropdown are the whole interface. 4 things are decided here that reading the
+dropdown are the whole interface. 5 things are decided here that reading the
 code will not tell you.
 
 - **The interface holds no count of its own.** A number kept in the interface
@@ -272,3 +272,14 @@ code will not tell you.
   `NSSpeechRecognitionUsageDescription`, which is why the recognizer runs from
   Terminal and stops under editors missing that key. No message can cover it,
   since nothing survives to draw one.
+
+- **A session ends when recognition reports an error.** Speech arriving while
+  recognition is failing goes uncounted, and a total short by an unknown amount
+  reads as a habit improving, which can mislead the person using it.
+  Ending the session ensures every session on screen counted
+  continuously from its start to its stop. The status item drops
+  its count for a warning symbol at the same moment.
+  Each error is written to the log with its domain and code, which is
+  what will say how often that happens. The stop cancels the
+  recognition task, and the error a cancelled task reports is dropped at the
+  number it was started under, so it cannot land on the session started next.
