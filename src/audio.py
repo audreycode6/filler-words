@@ -194,6 +194,7 @@ class SpeechPipeline:
         # deliveries are kept.
         self._task_count = 0
         self._live_task_number = None
+        self._deliveries = 0
 
     @property
     def is_running(self):
@@ -331,7 +332,16 @@ class SpeechPipeline:
         if result is None:
             return
 
-        self._on_transcript(result.bestTranscription().formattedString())
+        transcript = result.bestTranscription().formattedString()
+        self._deliveries += 1
+        logger.debug(
+            "delivery %d from task %d, %d characters",
+            self._deliveries,
+            task_number,
+            len(transcript),
+        )
+
+        self._on_transcript(transcript)
 
 
 # --- running the pipeline on its own -----------------------------------------
