@@ -21,11 +21,14 @@ checks it on its own:
 docs/design-decisions.md carries the reasoning behind this design.
 """
 
+import logging
 import time
 
 import AVFoundation
 import Foundation
 import Speech
+
+logger = logging.getLogger(__name__)
 
 # How long 1 slice of the run loop runs before the caller gets a turn back.
 RUN_LOOP_SLICE_SECONDS = 0.1
@@ -73,6 +76,20 @@ class OnDeviceUnavailable(Exception):
     used it would look like a working app that counts most of a session as
     silence.
     """
+
+
+def _describe_error(error):
+    """Write an NSError out as its domain, its code and its description.
+
+    Anything that is not an NSError is written out whole.
+    """
+    if not hasattr(error, "domain"):
+        return str(error)
+
+    return (
+        f"domain={error.domain()} code={error.code()}"
+        f" :: {error.localizedDescription()}"
+    )
 
 
 def _states_for(mic_status, speech_status):
@@ -168,10 +185,15 @@ class SpeechPipeline:
         self._on_error = on_error
         self._pump_run_loop = pump_run_loop
 
-        self._recognizer = Speech.SFSpeechRecognizer.alloc().init()
+        self._recognizer = None
         self._engine = None
         self._request = None
         self._task = None
+
+        # start() numbers each recognition task; only the live number's
+        # deliveries are kept.
+        self._task_count = 0
+        self._live_task_number = None
 
     @property
     def is_running(self):
@@ -192,9 +214,18 @@ class SpeechPipeline:
         if state != AUTHORIZED:
             return state
 
+        if self._recognizer is None:
+            self._recognizer = Speech.SFSpeechRecognizer.alloc().init()
+
         self._request = self._build_request()
+
+        self._task_count += 1
+        self._live_task_number = self._task_count
+        task_number = self._task_count
+
         self._task = self._recognizer.recognitionTaskWithRequest_resultHandler_(
-            self._request, self._handle_result
+            self._request,
+            lambda result, error: self._handle_result(task_number, result, error),
         )
         self._engine = self._build_engine()
 
@@ -211,8 +242,11 @@ class SpeechPipeline:
         Unwound in the order the engine expects: the audio stops, then the tap
         comes off the bus feeding it, then the request is told no more audio is
         coming, and only then is the task cancelled. Stopping something that
-        was never started, or stopping twice, does nothing.
+        was never started, or stopping twice, does nothing. The live task number
+        is retired first, so a stopped pipeline delivers nothing.
         """
+        self._live_task_number = None
+
         if self._engine is not None:
             self._engine.stop()
             self._engine.inputNode().removeTapOnBus_(INPUT_BUS)
@@ -279,9 +313,17 @@ class SpeechPipeline:
 
         return engine
 
-    def _handle_result(self, result, error):
-        """Take 1 delivery from the recognizer and pass the text along."""
+    def _handle_result(self, task_number, result, error):
+        """Take 1 delivery from the recognizer and pass the text along.
+
+        `task_number` is the number the delivering task was started under.
+        A delivery from any number other than the live one is dropped.
+        """
+        if task_number != self._live_task_number:
+            return
+
         if error is not None:
+            logger.error("recognition failed: %s", _describe_error(error))
             if self._on_error is not None:
                 self._on_error(error)
             return
