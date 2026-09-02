@@ -1,10 +1,8 @@
 """The status item and the menu it drops down.
 
 Every number shown is read from a Session as the menu opens and again while it
-stays open, so the interface holds no count of its own. Nothing here knows
-about audio: starting, stopping
-and reading authorization are callables handed in, which is what lets the same
-interface run against canned text with no microphone.
+stays open. Starting, stopping and reading authorization are callables handed
+in, so the same interface runs against canned text without a microphone.
 
 The first half of the module takes a Session and returns strings, and is
 tested. The half below it builds AppKit objects from those strings.
@@ -27,9 +25,9 @@ SUMMARY_HEADER = "Session Summary"
 ERROR_HEADER = "Speech Recognition Failed"
 ERROR_GUIDANCE = "The session stopped early. Start begins a new session."
 
-# The states audio.py reports, copied here so this module imports no Apple
-# speech framework. A test holds the 2 sets together. The app prompts for an
-# undetermined state, so only these 3 appear in the menu.
+# The states audio.py reports, copied here to keep the Apple speech framework
+# out of this module's imports. A test holds the 2 sets together. The app
+# prompts for an undetermined state, leaving these 3 for the menu.
 AUTHORIZED = "authorized"
 DENIED = "denied"
 RESTRICTED = "restricted"
@@ -101,12 +99,10 @@ def menu_header(session, errored=False):
 def word_rows(session, ordered_by_count=False):
     """Every tracked entry with its count, as (entry, count) pairs.
 
-    Rows hold the order of the tracked list while a session runs so that no row
-    moves under a reader, and sort by count once it stops.
-
-    Words sharing a count come out in the order the tracked list gives them,
-    since the count is the whole sort key and `list.sort` leaves equal items
-    where they are.
+    Rows hold the order of the tracked list while a session runs, and sort by
+    count once it stops. Words sharing a count come out in the order the
+    tracked list gives them, the count being the whole sort key and `list.sort`
+    leaving equal items where they are.
     """
     rows = list(session.counts.items())
     if ordered_by_count:
@@ -279,9 +275,8 @@ def _note_view(attributed, width):
     """One menu item's text, drawn by a view so AppKit cannot dim it."""
     label = _label(attributed)
     text_height = label.frame().size.height
-    # The label runs the whole item rather than the text it was built with,
-    # since the totals and the header are rewritten while the menu is open and
-    # a frame fitted to the first text would clip a longer one.
+    # The label runs the whole item width, sized to hold any later text the
+    # totals and the header are rewritten with while the menu is open.
     label.setFrame_(
         Foundation.NSMakeRect(
             ITEM_INSET_POINTS,
@@ -396,8 +391,7 @@ class MenuBarApp:
     state it found; the session begins only when that state is "authorized".
     `on_stop` is called after a stop is confirmed. `read_authorization` is
     called as the menu opens and returns the reported state together with the
-    microphone's and speech recognition's own, which is what lets a refusal
-    name the permission it is about.
+    microphone's and speech recognition's own.
     """
 
     def __init__(self, session, on_start, on_stop, read_authorization):
@@ -409,8 +403,8 @@ class MenuBarApp:
         self._live = None
         self._menu_timer = None
 
-        # Before any other AppKit object: spike 3 records the CGSConnectionByID
-        # assertion that follows otherwise.
+        # Before any other AppKit object, which otherwise hits the
+        # CGSConnectionByID assertion recorded in docs/spike-3-thread-safety.md.
         self._app = AppKit.NSApplication.sharedApplication()
         self._app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
 
@@ -450,8 +444,7 @@ class MenuBarApp:
             self._on_stop()
             self._session.stop()
 
-        # An open menu holds the items it was built with, so it would keep
-        # offering Stop for a session that has ended.
+        # An open menu holds the items it was built with, Stop among them.
         self._menu.cancelTracking()
         self.refresh()
 
@@ -497,8 +490,7 @@ class MenuBarApp:
     def menu_opened(self):
         """Start the timer that redraws an open menu once a second.
 
-        Only elapsed time moves between committed segments, so a stopped
-        session gets no timer.
+        A stopped session gets no timer, every number it shows being frozen.
         """
         if self._menu_timer is not None or not self._session.is_active:
             return
@@ -551,7 +543,7 @@ class MenuBarApp:
             header_item,
             _header_title(menu_header(session, self._errored)),
         )
-        # A row's word never changes, so only the count at index 1 is written.
+        # A row's word is fixed, so only the count at index 1 is written.
         for entry, item in row_items:
             _set_item_text(item, _count_title(session.counts[entry]), 1)
         for item, line in zip(totals_items, totals_lines(session)):
@@ -582,7 +574,8 @@ class MenuBarApp:
         for line in lines:
             self._add_item(menu, _wrapped_view(_muted_title(line), width))
 
-        # System Settings cannot lift a restriction, so it is not offered.
+        # System Settings is offered only where it can lift the refusal, which
+        # excludes a restriction.
         if state != DENIED:
             return
 
@@ -603,8 +596,8 @@ class MenuBarApp:
         stopped_with_a_session = not session.is_active and has_run(session)
         rows = word_rows(session, ordered_by_count=stopped_with_a_session)
 
-        # Every item is built to one width, so the counts line up and the menu
-        # holds that width for as long as it stays open.
+        # Every item is built to one width, which lines the counts up and holds
+        # the menu at that width for as long as it stays open.
         width = max(
             row_width([entry for entry, _ in rows]),
             *(
@@ -695,7 +688,7 @@ CHECK_ERROR_AFTER_SEGMENTS = 2
 
 # 4 segments, each arriving as the whole transcript so far, the way the
 # recognizer delivers them. A short opening collapses the one before it, which
-# is what commits a segment.
+# commits that segment.
 CHECK_TRANSCRIPTS = (
     "I like",
     "I like the way",

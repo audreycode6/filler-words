@@ -21,6 +21,11 @@ of the totals.
   frameworks, so there is no cross-platform path.
 - Python 3.12. This is the version the project is pinned to and the one all
   spike measurements were taken on.
+- Terminal.app. An editor's integrated terminal may not declare
+  `NSSpeechRecognitionUsageDescription`, and macOS ends the process without a
+  message when the launching application is missing it.
+  > [!NOTE]
+  > Packaging the app as its own signed application removes this.
 
 Those spike measurements, and the design decisions they settled, are written up
 in [`docs/`](docs/README.md).
@@ -29,16 +34,16 @@ in [`docs/`](docs/README.md).
 
 1. Create and activate the virtual environment:
 
-       python3.12 -m venv venv
-       source venv/bin/activate
+   python3.12 -m venv venv
+   source venv/bin/activate
 
 2. Install runtime and development dependencies:
 
-       pip install -r requirements-dev.txt
+   pip install -r requirements-dev.txt
 
 3. Run the tests:
 
-       pytest
+   pytest
 
 ## Contributing
 

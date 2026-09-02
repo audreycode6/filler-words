@@ -1,10 +1,9 @@
 """Counting tracked words in a transcript that revises itself.
 
 The recognizer hands back the whole transcript on every callback, revises words
-it has already emitted, and every 12 to 45 seconds discards it and
-starts a new one with no signal that it did. Nothing is counted until the
-transcript rolls over, at which point the text last seen is taken as final and
-added to the totals -- the count only ever goes up.
+it has already emitted, and every 12 to 45 seconds discards it and starts a new
+one. A segment is counted once, at the rollover, from the text last seen before
+it.
 
     SegmentTracker   hands out finished segments, one per rollover.
     count_tracked    a pure function of one segment's text.
@@ -48,14 +47,9 @@ def _forms(tracked_words):
 def count_tracked(text, tracked_words):
     """Count each habit in one segment's text.
 
-    Returns the counts keyed by habit name and the segment's word count. Every
-    form of a habit adds to the one name, so the count describes the habit
-    rather than any single way of saying it. The word count is taken here
-    because this is where the text has already been split, and the running
-    total belongs to the session.
-
-    Every habit appears in the returned counts, including the ones that did not
-    occur -- callers never have to branch on a missing key.
+    Returns the counts keyed by habit name, and the segment's word count from
+    the same split. Every form of a habit adds to its name. Every habit appears
+    in the counts, including the ones that did not occur.
     """
     habits = _forms(tracked_words)
     phrases = {
@@ -97,10 +91,9 @@ class SegmentTracker:
         return previous if self._rolled_over(previous, transcript) else None
 
     def flush(self):
-        """Hand over the segment still open, so stopping loses no speech.
+        """Hand over the segment still open, and clear it.
 
-        Returns nothing when there is nothing open, so stopping twice cannot
-        count the same speech twice.
+        Returns None when nothing is open.
         """
         open_segment = self._previous
         self._previous = ""
@@ -109,14 +102,12 @@ class SegmentTracker:
 
     @staticmethod
     def _rolled_over(previous, current):
-        """Tell a rollover apart from the recognizer's close-out rewrite.
+        """Report whether the transcript rolled over into a new segment.
 
-        A transcript that still extends the one before it is the same segment
-        growing. One that does not may be either of 2 things, and the
-        difference is length: the recognizer's close-out pass re-decodes a
-        segment at roughly its original length just before discarding it, while
-        a rollover replaces it with the first words of new speech. Treating a
-        close-out as a rollover would commit the same segment twice.
+        A transcript that extends the one before it is the same segment
+        growing. One that replaces it at half its length or less is a rollover.
+        One that replaces it at roughly its original length is the recognizer's
+        close-out rewrite of the same segment.
         """
         if not previous or current.startswith(previous):
             return False
