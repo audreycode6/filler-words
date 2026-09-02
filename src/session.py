@@ -1,14 +1,13 @@
-"""One session's totals, and the only place the interface reads them from.
+"""One session's totals, and the place the interface reads them from.
 
 A session is one stretch of listening: it starts, takes the count of each
-segment as the recognizer finishes with it, and stops. It holds: the
-per-entry counts, the number of words spoken, how many segments have been
-counted, and how long it has been running. Everything the menu shows is
-either one of those or derived here from them.
+segment as the recognizer finishes with it, and stops. It holds the per-entry
+counts, the number of words spoken, how many segments have been counted, and
+how long it has been running. Everything the menu shows is one of those or is
+derived here from them, the percentage included.
 
-The percentage is derived here. Nothing in this module knows what a transcript
-is: it is handed what `matchers.py`'s `count_tracked` returned and never sees
-text.
+This module is handed what `matcher.py`'s `count_tracked` returned and works
+only on those numbers.
 
 docs/design-decisions.md carries the reasoning behind this design.
 """
@@ -51,7 +50,7 @@ class Session:
         """Fold one committed segment's counts into the totals.
 
         Takes what `count_tracked` returned. A segment arriving after the stop
-        is dropped, so nothing moves underneath a summary being read.
+        is dropped.
         """
         if not self.is_active:
             return

@@ -31,10 +31,10 @@ logger = logging.getLogger(__name__)
 class VerbalHabits:
     """One session's worth of objects, and the callbacks running between them.
 
-    The tracked list is an argument so that the app can be built around a list
+    The tracked list is an argument, so the app can be built around a list
     other than the shipped one. The pipeline and the menu are taken as callables
-    that build them, so a test supplies stand-ins and needs neither a microphone
-    nor a window server.
+    that build them, so a test supplies stand-ins and runs without a microphone
+    or a window server.
     """
 
     def __init__(
@@ -79,8 +79,7 @@ class VerbalHabits:
         if state != audio.AUTHORIZED:
             return state
 
-        # A fresh tracker, so the first transcript of this session is compared
-        # against nothing.
+        # A fresh tracker, holding no previous transcript from the last session.
         self._tracker = SegmentTracker()
         return self._pipeline.start()
 
@@ -114,8 +113,7 @@ class VerbalHabits:
         """Count whatever segment this transcript finished, then have the menu
         reread the session.
 
-        Runs on the main thread, so the totals are written on the thread they
-        are read from.
+        Runs on the main thread, which is the thread the totals are read from.
         """
         self._folds += 1
         logger.debug("fold %d, %d characters", self._folds, len(transcript))

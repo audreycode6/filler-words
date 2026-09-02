@@ -31,7 +31,7 @@ transcript it has been building and starts another on its own schedule, many
 times within a single session.
 
 - **A segment is counted once, at the rollover, from the text last seen before
-  it.**
+  it.** So the count only ever goes up.
 - **Stopping counts the segment in progress before it ends the session**, so the
   speech since the last rollover still reaches the totals. Anything the
   recognizer delivers after the stop is dropped.
@@ -81,7 +81,9 @@ person in System Settings.
 - **Recognition runs solely on device.** By default the framework sends audio to Apple's servers, where a recognition task ends by itself after about a minute, silently and with no error raised. On device no such limit applies, so one task covers the whole session, and the audio never leaves the Mac. The app will not run at all where on-device recognition is unavailable.
 - **The microphone is released when a session stops.** The engine, its tap, the
   request and the task are built at start and torn down at stop, so an idle app
-  shows no microphone indicator in the menu bar.
+  shows no microphone indicator in the menu bar. A cancelled recognition task
+  cannot be restarted, so keeping one alive between sessions would make every
+  session after the first a silent one.
 - **A refusal names the permission it is about**, the 2 being granted on
   separate System Settings panes.
 

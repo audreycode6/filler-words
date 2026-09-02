@@ -1,17 +1,14 @@
-"""Streaming speech from the microphone into whatever wants to count it.
+"""Streaming speech from the microphone.
 
 `SpeechPipeline` holds the 4 Apple objects that have to be alive together --
 the audio engine, the tap on its input, the recognition request and the
 recognition task -- starts and stops them in the right order, and hands each
-transcript to a callback. It knows nothing about segments or tracked words: it
-produces the text that `matcher.py` turns into counts.
+transcript to a callback. It produces the text that `matcher.py` turns into
+counts.
 
-Both of this stack's silent failures are refused here rather than inherited:
-
- - A denied microphone returns zeros from an engine that reported success, so
-   authorization is read before anything starts.
- - Recognition runs on Apple's servers unless asked to stay on the machine, so
-   a machine that cannot raises OnDeviceUnavailable.
+An engine starts only once microphone and speech recognition authorization are
+both granted, and only on a machine that supports on-device recognition, which
+raises OnDeviceUnavailable where that support is missing.
 
 The app drives SpeechPipeline from the menu bar. Running the module instead
 checks it on its own:
@@ -70,11 +67,7 @@ _SEVERITY_ORDER = (DENIED, RESTRICTED, UNDETERMINED, AUTHORIZED)
 class OnDeviceUnavailable(Exception):
     """Raised when this machine cannot recognize speech without the network.
 
-    Separate from the authorization states because nobody can grant it. The
-    server path exists and would run, which is exactly why this is an error:
-    it stops after about a minute with no error raised, so a run that quietly
-    used it would look like a working app that counts most of a session as
-    silence.
+    Separate from the authorization states, which a person can grant.
     """
 
 
@@ -95,9 +88,8 @@ def _describe_error(error):
 def _states_for(mic_status, speech_status):
     """Map each authorization status to a state, keeping the 2 apart.
 
-    A status neither framework has documented is treated as RESTRICTED, being
-    the closest true thing the app can say: listening is unavailable, and
-    asking again will not change it.
+    A status neither framework documents maps to RESTRICTED, which reports
+    listening as unavailable and not worth asking for again.
     """
     return (
         _MIC_STATES.get(mic_status, RESTRICTED),
@@ -143,9 +135,8 @@ def request_authorization(when_decided):
     """Prompt for whichever permission has not been asked for yet.
 
     `when_decided` is called with the state the 2 statuses came to once the
-    person has answered. A callback rather than a return value because the
-    prompts are answered on the person's own time, and the run loop has to keep
-    turning while they are on screen.
+    person has answered. It takes a callback rather than returning a state
+    because the run loop has to keep turning while the prompts are on screen.
     """
 
     def speech_decided(_status):
@@ -165,8 +156,7 @@ class SpeechPipeline:
     """The microphone, the recognizer, and the transcripts running between them.
 
     Built once and started and stopped as many times as there are sessions. The
-    request and the task are made fresh on each start, since a task that has
-    been cancelled cannot be reused.
+    request and the task are made fresh on each start.
 
     `on_transcript` is called with the whole transcript so far, every time the
     recognizer revises it. `on_error` is called with an NSError when
@@ -176,8 +166,7 @@ class SpeechPipeline:
 
     `pump_run_loop` is for callers with no event loop of their own. An
     application running `NSApplication.run()` already runs the run loop these
-    callbacks arrive on and leaves this false; a script has to run it itself
-    or receive nothing at all, with no error to say why.
+    callbacks arrive on and leaves this false; a script sets it true.
     """
 
     def __init__(self, on_transcript, on_error=None, pump_run_loop=False):
@@ -203,10 +192,9 @@ class SpeechPipeline:
     def start(self):
         """Begin listening, returning the authorization state it found.
 
-        Nothing is built and no engine is started unless that state is
-        AUTHORIZED, so a caller can report the reason without having to undo
-        anything. Raises OnDeviceUnavailable when this machine would need the
-        network to recognize speech.
+        Builds and starts an engine only when that state is AUTHORIZED. Raises
+        OnDeviceUnavailable when this machine would need the network to
+        recognize speech.
         """
         if self.is_running:
             return AUTHORIZED
@@ -241,10 +229,10 @@ class SpeechPipeline:
         """Stop listening and release everything start() built.
 
         Unwound in the order the engine expects: the audio stops, then the tap
-        comes off the bus feeding it, then the request is told no more audio is
-        coming, and only then is the task cancelled. Stopping something that
-        was never started, or stopping twice, does nothing. The live task number
-        is retired first, so a stopped pipeline delivers nothing.
+        comes off the bus feeding it, then the request is told the audio has
+        ended, and last the task is cancelled. The live task number is retired
+        first, which ends delivery. Stopping an unstarted pipeline, or stopping
+        twice, is a no-op.
         """
         self._live_task_number = None
 
@@ -262,14 +250,11 @@ class SpeechPipeline:
             self._task = None
 
     def pump(self, seconds):
-        """Turn the run loop for a while, so callbacks have somewhere to arrive.
+        """Turn the run loop for a while, which is how callbacks arrive.
 
-        Recognition results are delivered by the Cocoa run loop. Sleeping
-        instead of turning it produces a run with no transcripts and no error,
-        which reads like a microphone that hears nothing.
-
-        Returns early once the pipeline has been stopped. Does nothing at all
-        unless the pipeline was built with pump_run_loop.
+        Recognition results are delivered by the Cocoa run loop. Returns early
+        once the pipeline has been stopped, and is a no-op unless the pipeline
+        was built with pump_run_loop.
         """
         if not self._pump_run_loop:
             return
@@ -283,7 +268,7 @@ class SpeechPipeline:
             run_loop.runUntilDate_(slice_end)
 
     def _build_request(self):
-        """A recognition request that streams, and never leaves the machine."""
+        """A recognition request that streams and stays on the machine."""
         # Checked before it is set
         if not self._recognizer.supportsOnDeviceRecognition():
             raise OnDeviceUnavailable(
@@ -349,10 +334,9 @@ class SpeechPipeline:
 
 DEFAULT_CHECK_SECONDS = 180
 
-# A gap this long between transcripts, while speech continues, is the failure
-# this check is looking for: recognition stopping without saying so. Held above
-# the quiet spell before a rollover, measured at 8.5s in a 181-second run, and
-# well under the ~61s at which the server path dies in silence.
+# A gap this long between transcripts, while speech continues, is reported as a
+# stall. Above the quiet spell before a rollover, measured at 8.5s in a
+# 181-second run, and under the ~61s at which the server path stops.
 CONTINUITY_GAP_SECONDS = 20
 
 
@@ -360,9 +344,8 @@ def _run_check(seconds):
     """Stream for a while and report whether it held up.
 
     Prints the permission state by name before anything starts, every
-    transcript as it arrives, and a verdict at the end. The verdict is the
-    point: a gap in the middle of a long run is invisible while it scrolls
-    past, and only shows up as a number.
+    transcript as it arrives, and a verdict at the end reporting the longest
+    gap between transcripts.
     """
     state = authorization_state()
     print(f"Authorization: {state}")
@@ -372,8 +355,8 @@ def _run_check(seconds):
         decided = []
         request_authorization(decided.append)
 
-        # Nothing has been built yet, so pump a plain run loop rather than the
-        # pipeline's, and give up rather than hang if the prompts go unanswered.
+        # Pump a plain run loop, since the pipeline's does not exist yet, and
+        # time out if the prompts go unanswered.
         run_loop = Foundation.NSRunLoop.currentRunLoop()
         deadline = time.monotonic() + 60
         while not decided and time.monotonic() < deadline:
