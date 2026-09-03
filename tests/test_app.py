@@ -39,6 +39,7 @@ class FakeMenu:
         self.refreshes = 0
         self.errored = False
         self.errors_reported = 0
+        self.stopped_device = None
 
     def start(self):
         state = self._on_start()
@@ -61,6 +62,12 @@ class FakeMenu:
         self._on_stop()
         self.session.stop()
 
+    def input_stopped(self, device_name):
+        self.errored = True
+        self.stopped_device = device_name
+        self._on_stop()
+        self.session.stop()
+
 
 class FakePipeline:
     """Stands in for SpeechPipeline, taking the callbacks and counting stops.
@@ -69,9 +76,16 @@ class FakePipeline:
     it has retired the task it cancels.
     """
 
-    def __init__(self, on_transcript, on_error=None, state=audio.AUTHORIZED):
+    def __init__(
+        self,
+        on_transcript,
+        on_error=None,
+        on_stalled=None,
+        state=audio.AUTHORIZED,
+    ):
         self.on_transcript = on_transcript
         self.on_error = on_error
+        self.on_stalled = on_stalled
         self.state = state
         self.starts = 0
         self.stops = 0
@@ -90,8 +104,8 @@ def build():
     A test sets the authorization state by patching `audio.authorization_state`.
     """
 
-    def build_pipeline(on_transcript, on_error=None):
-        return FakePipeline(on_transcript, on_error)
+    def build_pipeline(on_transcript, on_error=None, on_stalled=None):
+        return FakePipeline(on_transcript, on_error, on_stalled)
 
     return VerbalHabits(WORDS, build_pipeline=build_pipeline, build_menu=FakeMenu)
 
@@ -157,6 +171,28 @@ def test_an_error_reaches_the_menu(authorized):
 
     assert verbal._menu.errored
     assert verbal._menu.errors_reported == 1
+
+
+def test_a_stalled_microphone_reaches_the_menu(authorized):
+    verbal = build()
+    verbal._menu.start()
+
+    verbal._pipeline.on_stalled("Audrey's Earphones")
+
+    assert verbal._menu.stopped_device == "Audrey's Earphones"
+
+
+def test_a_stalled_microphone_ends_the_session(authorized):
+    # The clock keeps running on a session nothing stops, and the totals below
+    # it stand still, which reads as a quiet stretch of speech.
+    verbal = build()
+    verbal._menu.start()
+    verbal._pipeline.on_transcript("well and bro")
+
+    verbal._pipeline.on_stalled("Audrey's Earphones")
+
+    assert verbal._session.is_active is False
+    assert verbal._pipeline.stops == 1
 
 
 def test_an_error_ends_the_session(authorized):

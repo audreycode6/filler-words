@@ -14,6 +14,7 @@ from menubar import (
     DENIED,
     ERROR_HEADER,
     IDLE_HEADER,
+    INPUT_STOPPED_HEADER,
     RESTRICTED,
     SUMMARY_HEADER,
     TRACKING_HEADER,
@@ -22,6 +23,7 @@ from menubar import (
     authorization_lines,
     elapsed_text,
     has_run,
+    input_stopped_guidance,
     menu_header,
     refused_permissions,
     status_title,
@@ -130,11 +132,40 @@ def test_recognition_having_stopped_outranks_every_other_header():
     session.start()
     session.record({"like": 3}, 40)
 
-    assert menu_header(session, errored=True) == ERROR_HEADER
+    assert menu_header(session, ERROR_HEADER) == ERROR_HEADER
 
     session.stop()
 
-    assert menu_header(session, errored=True) == ERROR_HEADER
+    assert menu_header(session, ERROR_HEADER) == ERROR_HEADER
+
+
+def test_the_input_having_stopped_outranks_every_other_header():
+    # The microphone can stop sending audio while the session still calls
+    # itself active, which reads the same way from the header down.
+    session = a_session(["like"])
+    session.start()
+    session.record({"like": 3}, 40)
+
+    assert menu_header(session, INPUT_STOPPED_HEADER) == INPUT_STOPPED_HEADER
+
+
+# --- what a stopped input says -----------------------------------------------
+
+
+def test_the_guidance_names_the_device_the_audio_came_from():
+    guidance = input_stopped_guidance("Audrey's Earphones")
+
+    assert "Audrey's Earphones" in guidance
+    assert "Start" in guidance
+
+
+def test_the_guidance_stands_without_a_device_name():
+    # The system reports no default input device on some machines, and an
+    # empty name would otherwise reach the alert.
+    guidance = input_stopped_guidance("")
+
+    assert "the microphone" in guidance
+    assert "Start" in guidance
 
 
 # --- the rows ----------------------------------------------------------------

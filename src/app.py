@@ -50,7 +50,9 @@ class VerbalHabits:
         self._commits = 0
 
         self._pipeline = build_pipeline(
-            self._took_transcript, on_error=self._took_error
+            self._took_transcript,
+            on_error=self._took_error,
+            on_stalled=self._took_stall,
         )
         self._menu = build_menu(
             self._session,
@@ -108,6 +110,10 @@ class VerbalHabits:
     def _took_error(self, _error):
         """End the session on a recognition error, which audio.py has written out."""
         on_main(self._menu.recognition_failed)
+
+    def _took_stall(self, device_name):
+        """End the session when the microphone stops sending audio."""
+        on_main(lambda: self._menu.input_stopped(device_name))
 
     def _fold(self, transcript):
         """Count whatever segment this transcript finished, then have the menu

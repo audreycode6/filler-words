@@ -24,6 +24,7 @@ TRACKING_HEADER = "Tracking"
 SUMMARY_HEADER = "Session Summary"
 ERROR_HEADER = "Speech Recognition Failed"
 ERROR_GUIDANCE = "The session stopped early. Start begins a new session."
+INPUT_STOPPED_HEADER = "Audio Input Stopped"
 
 # The states audio.py reports, copied here to keep the Apple speech framework
 # out of this module's imports. A test holds the 2 sets together. The app
@@ -34,6 +35,19 @@ RESTRICTED = "restricted"
 
 MICROPHONE = "microphone"
 SPEECH_RECOGNITION = "speech recognition"
+
+
+def input_stopped_guidance(device_name):
+    """What the menu says when the microphone stops sending audio.
+
+    Names the device where the system gave a name for it, and calls it the
+    microphone where it did not.
+    """
+    return (
+        f"{APP_NAME} stopped receiving audio from {device_name or 'the microphone'}. "
+        "Check that it is still connected, then press Start for a new session. "
+        "The counts are what was heard up to then."
+    )
 
 
 def refused_permissions(state, mic_state, speech_state):
@@ -79,14 +93,15 @@ def status_title(session):
     return str(session.total_tracked_count)
 
 
-def menu_header(session, errored=False):
+def menu_header(session, stopped_header=None):
     """The line above the word rows.
 
-    A running session reads as transcribing until its first segment commits,
-    and as tracking from then on.
+    A session ended by a failure reads as whatever that failure is called. A
+    running session reads as transcribing until its first segment commits, and
+    as tracking from then on.
     """
-    if errored:
-        return ERROR_HEADER
+    if stopped_header:
+        return stopped_header
     if session.is_active:
         if session.segments_counted == 0:
             return TRANSCRIBING_HEADER
@@ -399,7 +414,11 @@ class MenuBarApp:
         self._on_start = on_start
         self._on_stop = on_stop
         self._read_authorization = read_authorization
-        self._errored = False
+
+        # The header and guidance of whatever ended the session early, and None
+        # while nothing has.
+        self._stopped_header = None
+        self._stopped_guidance = None
         self._live = None
         self._menu_timer = None
 
@@ -439,7 +458,22 @@ class MenuBarApp:
 
     def recognition_failed(self):
         """End the session, and show that recognition is what ended it."""
-        self._errored = True
+        self._stopped_early(ERROR_HEADER, ERROR_GUIDANCE)
+
+    def input_stopped(self, device_name):
+        """End the session when the microphone stops sending audio.
+
+        Raises an alert as well as marking the menu, so a person talking into a
+        session that has died hears about it as it happens.
+        """
+        guidance = input_stopped_guidance(device_name)
+        self._stopped_early(INPUT_STOPPED_HEADER, guidance)
+        self._alert(INPUT_STOPPED_HEADER, guidance)
+
+    def _stopped_early(self, header, guidance):
+        """End the session and hold the words describing what ended it."""
+        self._stopped_header = header
+        self._stopped_guidance = guidance
         if self._session.is_active:
             self._on_stop()
             self._session.stop()
@@ -469,7 +503,8 @@ class MenuBarApp:
             # on_start owns requesting authorization.
             return
 
-        self._errored = False
+        self._stopped_header = None
+        self._stopped_guidance = None
         self._session.start()
         self.refresh()
 
@@ -513,12 +548,14 @@ class MenuBarApp:
     # --- drawing ---
 
     def _apply_title(self):
-        symbol = self._error_symbol if self._errored else self._symbol
+        symbol = self._error_symbol if self._stopped_header else self._symbol
         if symbol is not None:
             self._status_item.button().setImage_(symbol)
 
         text = status_title(self._session)
-        fallback = ERROR_SYMBOL_FALLBACK if self._errored else SYMBOL_FALLBACK
+        fallback = (
+            ERROR_SYMBOL_FALLBACK if self._stopped_header else SYMBOL_FALLBACK
+        )
         if symbol is None and text:
             text = f"{fallback} {text}"
         elif symbol is None:
@@ -541,7 +578,7 @@ class MenuBarApp:
 
         _set_item_text(
             header_item,
-            _header_title(menu_header(session, self._errored)),
+            _header_title(menu_header(session, self._stopped_header)),
         )
         # A row's word is fixed, so only the count at index 1 is written.
         for entry, item in row_items:
@@ -610,12 +647,14 @@ class MenuBarApp:
         header_item = self._add_item(
             menu,
             _note_view(
-                _header_title(menu_header(session, self._errored)),
+                _header_title(menu_header(session, self._stopped_header)),
                 width,
             ),
         )
-        if self._errored:
-            self._add_item(menu, _wrapped_view(_muted_title(ERROR_GUIDANCE), width))
+        if self._stopped_header:
+            self._add_item(
+                menu, _wrapped_view(_muted_title(self._stopped_guidance), width)
+            )
 
         row_items = []
         for entry, count in rows:
