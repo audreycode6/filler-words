@@ -15,9 +15,12 @@ opposite positions. The values were read back from the installed
 frameworks when this was written.
 """
 
+import audio
 from audio import (
     AUTHORIZED,
     DENIED,
+    RESTARTS_BEFORE_GIVING_UP,
+    RESTART_WINDOW_SECONDS,
     STALL_SECONDS,
     RESTRICTED,
     UNDETERMINED,
@@ -172,10 +175,9 @@ def test_a_delivery_from_the_live_task_is_passed_along():
     pipeline, transcripts, errors = build_pipeline()
 
     pipeline._handle_result(1, FakeResult(), None)
-    pipeline._handle_result(1, None, FakeError())
 
     assert transcripts == ["the words that were said"]
-    assert len(errors) == 1
+    assert errors == []
 
 
 def test_a_delivery_from_a_retired_task_is_dropped():
@@ -285,3 +287,137 @@ def test_a_machine_with_no_named_device_still_reports():
     pipeline._check_for_a_stall()
 
     assert stalls == [""]
+
+
+# --- a recognition task that ends itself -------------------------------------
+
+# Silence ends a task, and the pipeline replaces it where it stands. These
+# tests stand in for everything a restart touches: an engine it leaves alone, a
+# recognizer that hands out tasks, and a clock the test moves. They open no
+# microphone and recognize nothing.
+
+
+class FinalResult(FakeResult):
+    def isFinal(self):
+        return True
+
+
+class FakeTask:
+    def __init__(self):
+        self.cancelled = False
+
+    def cancel(self):
+        self.cancelled = True
+
+
+class FakeRecognizer:
+    def __init__(self):
+        self.tasks = []
+
+    def supportsOnDeviceRecognition(self):
+        return True
+
+    def recognitionTaskWithRequest_resultHandler_(self, request, handler):
+        task = FakeTask()
+        self.tasks.append(task)
+        return task
+
+
+def build_restartable_pipeline(monkeypatch):
+    """A pipeline running task 1 on a stand-in engine, as start() leaves it.
+
+    Work handed to the main thread runs where it was called from, so a restart
+    is finished by the time the call that asked for it returns.
+    """
+    transcripts = []
+    errors = []
+    clock = FakeClock()
+
+    pipeline = SpeechPipeline(
+        transcripts.append, on_error=errors.append, clock=clock
+    )
+    pipeline._recognizer = FakeRecognizer()
+    pipeline._engine = object()
+    pipeline._task_count = 1
+    pipeline._live_task_number = 1
+    pipeline._restart_window_at = clock()
+
+    monkeypatch.setattr(audio, "_on_main", lambda work: work())
+
+    return pipeline, transcripts, errors, clock
+
+
+def test_an_error_restarts_rather_than_reporting(monkeypatch):
+    # The failure that ended a session after 44 seconds of quiet.
+    pipeline, transcripts, errors = build_pipeline()
+    monkeypatch.setattr(audio, "_on_main", lambda work: work())
+    restarts = []
+    pipeline._restart = lambda: restarts.append(True)
+
+    pipeline._handle_result(1, None, FakeError())
+
+    assert restarts == [True]
+    assert errors == []
+
+
+def test_a_final_result_restarts(monkeypatch):
+    # A task that ends without an error, which is how the session goes deaf.
+    pipeline, transcripts, errors = build_pipeline()
+    monkeypatch.setattr(audio, "_on_main", lambda work: work())
+    restarts = []
+    pipeline._restart = lambda: restarts.append(True)
+
+    pipeline._handle_result(1, FinalResult(), None)
+
+    assert transcripts == ["the words that were said"]
+    assert restarts == [True]
+
+
+def test_a_restart_retires_the_task_it_replaced(monkeypatch):
+    pipeline, transcripts, errors, clock = build_restartable_pipeline(monkeypatch)
+
+    pipeline._restart()
+
+    assert pipeline._live_task_number == 2
+    assert pipeline._recognizer.tasks[-1] is pipeline._task
+
+    # What the task that ended reports as it winds down.
+    pipeline._handle_result(1, FakeResult(), None)
+    pipeline._handle_result(1, None, FakeError())
+
+    assert transcripts == []
+    assert errors == []
+
+
+def test_a_stopped_pipeline_restarts_nothing():
+    pipeline, transcripts, errors = build_pipeline()
+
+    pipeline._restart()
+
+    assert pipeline._task_count == 0
+    assert errors == []
+
+
+def test_restarts_spaced_out_by_silence_never_report(monkeypatch):
+    # A quiet room ends a task about once every 45 seconds, for as long as it
+    # stays quiet.
+    pipeline, transcripts, errors, clock = build_restartable_pipeline(monkeypatch)
+
+    for _ in range(RESTARTS_BEFORE_GIVING_UP * 3):
+        clock.move(RESTART_WINDOW_SECONDS)
+        pipeline._restart()
+
+    assert errors == []
+    assert len(pipeline._recognizer.tasks) == RESTARTS_BEFORE_GIVING_UP * 3
+
+
+def test_restarts_faster_than_the_window_report_once(monkeypatch):
+    pipeline, transcripts, errors, clock = build_restartable_pipeline(monkeypatch)
+
+    for _ in range(RESTARTS_BEFORE_GIVING_UP + 1):
+        clock.move(1)
+        pipeline._restart()
+
+    assert len(errors) == 1
+    assert len(pipeline._recognizer.tasks) == RESTARTS_BEFORE_GIVING_UP
+    assert pipeline._live_task_number is None

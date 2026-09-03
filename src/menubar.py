@@ -23,7 +23,10 @@ TRANSCRIBING_HEADER = "Transcribing…"
 TRACKING_HEADER = "Tracking"
 SUMMARY_HEADER = "Session Summary"
 ERROR_HEADER = "Speech Recognition Failed"
-ERROR_GUIDANCE = "The session stopped early. Start begins a new session."
+ERROR_GUIDANCE = (
+    f"{APP_NAME} stopped recognizing speech and could not pick it back up. "
+    "Press Start for a new session. The counts are what was heard up to then."
+)
 INPUT_STOPPED_HEADER = "Audio Input Stopped"
 
 # The states audio.py reports, copied here to keep the Apple speech framework
@@ -457,8 +460,13 @@ class MenuBarApp:
         on_main(self._apply_open_menu)
 
     def recognition_failed(self):
-        """End the session, and show that recognition is what ended it."""
+        """End the session, and show that recognition is what ended it.
+
+        Raises an alert as well as marking the menu, so a person talking into a
+        session that has died hears about it as it happens.
+        """
         self._stopped_early(ERROR_HEADER, ERROR_GUIDANCE)
+        self._alert(ERROR_HEADER, ERROR_GUIDANCE)
 
     def input_stopped(self, device_name):
         """End the session when the microphone stops sending audio.

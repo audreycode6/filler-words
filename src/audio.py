@@ -10,6 +10,10 @@ An engine starts only once microphone and speech recognition authorization are
 both granted, and only on a machine that supports on-device recognition, which
 raises OnDeviceUnavailable where that support is missing.
 
+A recognition task ends itself after a stretch of silence. The request and the
+task are rebuilt where they stand when that happens, so a session outlasts any
+number of quiet spells; the engine and its tap run through them untouched.
+
 The app drives SpeechPipeline from the menu bar. Running the module instead
 checks it on its own:
 
@@ -24,6 +28,7 @@ import time
 import AVFoundation
 import Foundation
 import Speech
+import dispatch
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +53,12 @@ BUFFERS_PER_LOG = 50
 # that never came.
 STALL_SECONDS = 5
 STALL_CHECK_SECONDS = 1
+
+# How often a recognition task may be rebuilt before the recognizer is reported
+# as unable to stay up. A task ends on its own rarely and irregularly, so a
+# quiet room stays well inside this count for this window.
+RESTART_WINDOW_SECONDS = 30
+RESTARTS_BEFORE_GIVING_UP = 3
 
 # What the app can be in as far as listening goes. AUTHORIZED is the only one
 # that starts anything; the other 3 are what the interface reports instead.
@@ -80,6 +91,11 @@ class OnDeviceUnavailable(Exception):
 
     Separate from the authorization states, which a person can grant.
     """
+
+
+def _on_main(work):
+    """Run work on the main thread."""
+    dispatch.dispatch_async(dispatch.dispatch_get_main_queue(), work)
 
 
 def _describe_error(error):
@@ -184,10 +200,11 @@ class SpeechPipeline:
     request and the task are made fresh on each start.
 
     `on_transcript` is called with the whole transcript so far, every time the
-    recognizer revises it. `on_error` is called with an NSError when
-    recognition reports one. Both are called on whichever thread the recognizer
-    delivers to; a caller that touches an interface is responsible for getting
-    itself back to the main thread.
+    recognizer revises it. `on_error` is called with a description of why
+    recognition was given up on, after the request and task have been rebuilt
+    RESTARTS_BEFORE_GIVING_UP times inside RESTART_WINDOW_SECONDS. Both are
+    called on whichever thread the recognizer delivers to; a caller that touches
+    an interface is responsible for getting itself back to the main thread.
 
     `on_stalled` is called with the name of the input device when the
     microphone stops sending audio, from a timer on the run loop start() was
@@ -227,6 +244,11 @@ class SpeechPipeline:
         self._deliveries = 0
         self._buffers = 0
 
+        # What the restart ceiling compares against: how many restarts the
+        # window holds, and when that window opened.
+        self._restarts = 0
+        self._restart_window_at = None
+
         # What the stall timer compares against: the count it last read, when
         # that count last moved, and the device the audio was coming from.
         self._stall_timer = None
@@ -255,16 +277,10 @@ class SpeechPipeline:
         if self._recognizer is None:
             self._recognizer = Speech.SFSpeechRecognizer.alloc().init()
 
-        self._request = self._build_request()
+        self._restarts = 0
+        self._restart_window_at = self._clock()
 
-        self._task_count += 1
-        self._live_task_number = self._task_count
-        task_number = self._task_count
-
-        self._task = self._recognizer.recognitionTaskWithRequest_resultHandler_(
-            self._request,
-            lambda result, error: self._handle_result(task_number, result, error),
-        )
+        self._start_task()
         self._engine = self._build_engine()
 
         started, error = self._engine.startAndReturnError_(None)
@@ -309,6 +325,87 @@ class SpeechPipeline:
         if self._task is not None:
             self._task.cancel()
             self._task = None
+
+    def _start_task(self):
+        """Build a request and the recognition task reading it.
+
+        Each task carries the number it was started under, and only the live
+        number's deliveries are kept.
+        """
+        self._request = self._build_request()
+
+        self._task_count += 1
+        self._live_task_number = self._task_count
+        task_number = self._task_count
+
+        self._task = self._recognizer.recognitionTaskWithRequest_resultHandler_(
+            self._request,
+            lambda result, error: self._handle_result(task_number, result, error),
+        )
+
+    def _restart(self):
+        """Replace the request and task, leaving the engine and its tap alone.
+
+        A recognition task ends on its own after a stretch of silence, which is
+        ordinary in a session. The audio keeps arriving throughout, so only the
+        recognizer's half of the pipeline is rebuilt and the session carries on.
+        Restarting a stopped pipeline is a no-op.
+        """
+        if not self.is_running:
+            return
+
+        if self._restarts_are_too_fast():
+            self._give_up(
+                f"the recognizer stopped more than {RESTARTS_BEFORE_GIVING_UP}"
+                f" times in {RESTART_WINDOW_SECONDS} seconds"
+            )
+            return
+
+        self._live_task_number = None
+
+        if self._request is not None:
+            self._request.endAudio()
+        if self._task is not None:
+            self._task.cancel()
+
+        try:
+            self._start_task()
+        except OnDeviceUnavailable as error:
+            self._give_up(str(error))
+            return
+
+        logger.debug(
+            "restarted as task %d after %d buffers and %d deliveries",
+            self._task_count,
+            self._buffers,
+            self._deliveries,
+        )
+
+    def _restarts_are_too_fast(self):
+        """Whether restarts have come faster than silence accounts for.
+
+        Counts this restart against a window that opens on the first restart
+        after each gap of RESTART_WINDOW_SECONDS.
+        """
+        now = self._clock()
+        if (
+            self._restart_window_at is None
+            or now - self._restart_window_at >= RESTART_WINDOW_SECONDS
+        ):
+            self._restart_window_at = now
+            self._restarts = 0
+
+        self._restarts += 1
+
+        return self._restarts > RESTARTS_BEFORE_GIVING_UP
+
+    def _give_up(self, reason):
+        """Report a recognizer that will not stay up, which ends the session."""
+        self._live_task_number = None
+        logger.error("recognition gave up: %s", reason)
+
+        if self._on_error is not None:
+            self._on_error(reason)
 
     def pump(self, seconds):
         """Turn the run loop for a while, which is how callbacks arrive.
@@ -401,10 +498,12 @@ class SpeechPipeline:
         input_node = engine.inputNode()
         input_format = input_node.inputFormatForBus_(INPUT_BUS)
 
-        request = self._request
-
         def append_audio(buffer, when):
-            request.appendAudioPCMBuffer_(buffer)
+            # Read on each callback. A restart puts a new request in place of
+            # the old one, leaving a moment in between where there is neither.
+            request = self._request
+            if request is not None:
+                request.appendAudioPCMBuffer_(buffer)
 
             self._buffers += 1
             if self._buffers % BUFFERS_PER_LOG == 0:
@@ -426,9 +525,8 @@ class SpeechPipeline:
             return
 
         if error is not None:
-            logger.error("recognition failed: %s", _describe_error(error))
-            if self._on_error is not None:
-                self._on_error(error)
+            logger.debug("recognition ended: %s", _describe_error(error))
+            _on_main(self._restart)
             return
 
         if result is None:
@@ -445,6 +543,10 @@ class SpeechPipeline:
         )
 
         self._on_transcript(transcript)
+
+        # A final result ends the task whether or not an error follows it.
+        if result.isFinal():
+            _on_main(self._restart)
 
 
 # --- running the pipeline on its own -----------------------------------------
@@ -538,7 +640,8 @@ def _run_check(seconds):
 
     print(
         f"\nSummary: ran {elapsed:.1f}s | transcripts={len(arrivals)} | "
-        f"longest gap={longest_gap:.1f}s | buffers={pipeline._buffers}"
+        f"longest gap={longest_gap:.1f}s | buffers={pipeline._buffers} | "
+        f"restarts={pipeline._task_count - 1}"
     )
     if not arrivals:
         print("FAIL: no transcripts ever arrived.")
