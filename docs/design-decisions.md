@@ -86,6 +86,12 @@ person in System Settings.
   session after the first a silent one.
 - **A refusal names the permission it is about**, the 2 being granted on
   separate System Settings panes.
+- **A session ends when the microphone stops sending audio, and the app raises
+  an alert.** The engine stops itself when the input device changes. Nothing in
+  the framework says so, and a session left alone keeps running while it counts
+  nothing. The app catches this by counting the buffers the tap delivers. A
+  count that stands still means the audio stopped. The session ends there,
+  keeping every word counted up to that moment.
 
 ## Showing one session in the menu bar
 
