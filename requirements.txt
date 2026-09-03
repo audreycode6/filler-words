@@ -7,7 +7,7 @@
 # resolve the other four to a newer release, producing an install that mixes two
 # PyObjC versions.
 #
-# Held at 12.2.1 because every measurement recorded in spikes/NOTES.md was taken
+# Held at 12.2.1 because every measurement recorded in docs/ was taken
 # on it. The 12.2.2 release changes only how PyObjC itself is built (Xcode 27
 # support) and carries no runtime change, so there is nothing to gain by moving.
 
