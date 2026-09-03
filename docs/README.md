@@ -27,8 +27,8 @@ showing one session in the menu bar.
 
 ## What's still open
 
-Questions the spikes raised and did not settle. Each names the spike it came
-from.
+Questions a run raised and left unsettled, from a spike or from the app itself.
+Each names where it came from.
 
 - **Packaging the app as its own signed application.** Spikes 1, 2, 3 and 5 each
   left something to re-check once the app stops running from a source checkout:
@@ -48,10 +48,16 @@ from.
   by segment assumes it cannot, since that text has already been counted and a
   change to it could only be corrected by counting down. Spike 6 saw nothing
   suggesting it happens and did not test it directly.
-- **How often recognition stops during a long session.** Seen once, near the end
-  of a 30-minute run, before the app logged anything that would identify it. The
-  app now writes each error's domain and code to the log, so the next occurrence
-  will say what it was.
+- **What decides when a recognition task ends.** One ended after 44 seconds of
+  quiet, reporting `kLSRErrorDomain` code 300, while a later run outlived 116
+  seconds of it, so silence alone does not account for it. The rate that reports
+  a failing recognizer, 3 replacements inside 30 seconds, rests on those 2
+  observations.
+- **Identifying a recognizer that returns nothing from a room with no speech in
+  it.** In both, audio keeps arriving and transcripts stop, so nothing in the
+  app separates them and a session counting nothing looks healthy. Reading the
+  loudness of each buffer would separate them -- needs a threshold measured
+  against one microphone and one room.
 
 ## Writing a spike file
 

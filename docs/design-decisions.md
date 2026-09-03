@@ -73,12 +73,21 @@ to the moment the person speaking confirms a stop.
 
 Authorization is the system's record of whether this app may use the microphone
 and may use speech recognition, held separately for each and changed by the
-person in System Settings.
+person in System Settings. A recognition task is the recognizer's side of the
+pipeline, and it ends on its own while the microphone keeps sending audio.
 
 - **The pipeline owns the 4 Apple pieces that have to be alive together** — the audio engine, the tap copying its input, the recognition request, and the recognition task — which can only be started and stopped in one order.
 - **Both authorization statuses are read before anything starts**, and an engine
   is started only when both are granted.
-- **Recognition runs solely on device.** By default the framework sends audio to Apple's servers, where a recognition task ends by itself after about a minute, silently and with no error raised. On device no such limit applies, so one task covers the whole session, and the audio never leaves the Mac. The app will not run at all where on-device recognition is unavailable.
+- **Recognition runs solely on device.** By default the framework sends audio to Apple's servers, where a recognition task ends by itself after about a minute, silently and with no error raised. On device that limit is lifted, one task covering minutes at a stretch, and the audio never leaves the Mac. The app will not run at all where on-device recognition is unavailable.
+- **A recognition task that ends is replaced, and the session carries on.** A
+  stretch of silence ends one on its own, announced as a final result, as an
+  error, or as both, and each of the 3 is read as the end. Rebuilding the
+  request and the task leaves the audio engine and its tap running, so the
+  counts and the elapsed time carry across the silence.
+- **The tap looks up the recognition request each time it passes audio along.**
+  A tap that kept the request it started with would go on writing to the
+  replaced one, leaving every new task with nothing to recognize.
 - **The microphone is released when a session stops.** The engine, its tap, the
   request and the task are built at start and torn down at stop, so an idle app
   shows no microphone indicator in the menu bar. A cancelled recognition task
@@ -86,12 +95,11 @@ person in System Settings.
   session after the first a silent one.
 - **A refusal names the permission it is about**, the 2 being granted on
   separate System Settings panes.
-- **A session ends when the microphone stops sending audio, and the app raises
-  an alert.** The engine stops itself when the input device changes. Nothing in
-  the framework says so, and a session left alone keeps running while it counts
-  nothing. The app catches this by counting the buffers the tap delivers. A
-  count that stands still means the audio stopped. The session ends there,
-  keeping every word counted up to that moment.
+- **A session ends with an alert when it loses its input or its recognizer.** A
+  buffer count standing still catches an input that stopped sending audio. More
+  than 3 replacements inside 30 seconds catch a recognizer that will not stay
+  up, silence replacing a task far more slowly than that. The menu carries the
+  same words as the alert, and the counts up to that moment are kept.
 
 ## Showing one session in the menu bar
 
