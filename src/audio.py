@@ -38,6 +38,17 @@ INPUT_BUS = 0
 # guarantee: Spike 1 asked for this figure and was handed buffers of 4800.
 TAP_BUFFER_FRAMES = 1024
 
+# How many buffers pass between the debug lines counting them. Buffers arrive
+# about 10 times a second, so this writes 1 line every 5 seconds.
+BUFFERS_PER_LOG = 50
+
+# How long the buffer count stands still before the microphone is reported as
+# stalled, and how often that count is read. Buffers arrive whether or not
+# anyone is speaking, so a count that has not moved in 5 seconds is 50 buffers
+# that never came.
+STALL_SECONDS = 5
+STALL_CHECK_SECONDS = 1
+
 # What the app can be in as far as listening goes. AUTHORIZED is the only one
 # that starts anything; the other 3 are what the interface reports instead.
 AUTHORIZED = "authorized"
@@ -131,6 +142,20 @@ def authorization_detail():
     return _state_for(*statuses), mic_state, speech_state
 
 
+def input_device_name():
+    """The name of the microphone the system is listening through.
+
+    Empty when the system reports no default audio input device.
+    """
+    device = AVFoundation.AVCaptureDevice.defaultDeviceWithMediaType_(
+        AVFoundation.AVMediaTypeAudio
+    )
+    if device is None:
+        return ""
+
+    return device.localizedName()
+
+
 def request_authorization(when_decided):
     """Prompt for whichever permission has not been asked for yet.
 
@@ -164,15 +189,30 @@ class SpeechPipeline:
     delivers to; a caller that touches an interface is responsible for getting
     itself back to the main thread.
 
+    `on_stalled` is called with the name of the input device when the
+    microphone stops sending audio, from a timer on the run loop start() was
+    called on. Stopping the pipeline is left to whoever receives it.
+
+    `clock` is taken as an argument so a test can move time by hand.
+
     `pump_run_loop` is for callers with no event loop of their own. An
     application running `NSApplication.run()` already runs the run loop these
     callbacks arrive on and leaves this false; a script sets it true.
     """
 
-    def __init__(self, on_transcript, on_error=None, pump_run_loop=False):
+    def __init__(
+        self,
+        on_transcript,
+        on_error=None,
+        on_stalled=None,
+        pump_run_loop=False,
+        clock=time.monotonic,
+    ):
         self._on_transcript = on_transcript
         self._on_error = on_error
+        self._on_stalled = on_stalled
         self._pump_run_loop = pump_run_loop
+        self._clock = clock
 
         self._recognizer = None
         self._engine = None
@@ -180,10 +220,19 @@ class SpeechPipeline:
         self._task = None
 
         # start() numbers each recognition task; only the live number's
-        # deliveries are kept.
+        # deliveries are kept. The 2 counters are read against each other:
+        # buffers into the request, deliveries back out of the task.
         self._task_count = 0
         self._live_task_number = None
         self._deliveries = 0
+        self._buffers = 0
+
+        # What the stall timer compares against: the count it last read, when
+        # that count last moved, and the device the audio was coming from.
+        self._stall_timer = None
+        self._buffers_when_read = 0
+        self._buffers_moved_at = None
+        self._device_name = ""
 
     @property
     def is_running(self):
@@ -223,6 +272,11 @@ class SpeechPipeline:
             self.stop()
             raise RuntimeError(f"the audio engine did not start: {error}")
 
+        # Read while the device is still there. By the time it stops sending
+        # audio the system may report a different one, or none.
+        self._device_name = input_device_name()
+        self._watch_for_a_stall()
+
         return AUTHORIZED
 
     def stop(self):
@@ -235,8 +289,15 @@ class SpeechPipeline:
         twice, is a no-op.
         """
         self._live_task_number = None
+        self._retire_stall_timer()
 
         if self._engine is not None:
+            logger.debug(
+                "stopping after %d buffers and %d deliveries, engine running %s",
+                self._buffers,
+                self._deliveries,
+                self._engine.isRunning(),
+            )
             self._engine.stop()
             self._engine.inputNode().removeTapOnBus_(INPUT_BUS)
             self._engine = None
@@ -267,6 +328,58 @@ class SpeechPipeline:
             )
             run_loop.runUntilDate_(slice_end)
 
+    def _watch_for_a_stall(self):
+        """Begin reading the buffer count on a timer.
+
+        The timer goes on the run loop start() was called on, which is the one
+        the interface runs on.
+        """
+        self._buffers_when_read = self._buffers
+        self._buffers_moved_at = self._clock()
+
+        self._stall_timer = Foundation.NSTimer.timerWithTimeInterval_repeats_block_(
+            STALL_CHECK_SECONDS, True, lambda _timer: self._check_for_a_stall()
+        )
+        Foundation.NSRunLoop.currentRunLoop().addTimer_forMode_(
+            self._stall_timer, Foundation.NSRunLoopCommonModes
+        )
+
+    def _retire_stall_timer(self):
+        """Stop reading the buffer count. A pipeline with no timer is a no-op."""
+        if self._stall_timer is not None:
+            self._stall_timer.invalidate()
+            self._stall_timer = None
+
+    def _check_for_a_stall(self):
+        """Read the buffer count once, and report a microphone that went quiet.
+
+        Reports once per start: the time the count last moved is cleared on the
+        way out, so the caller receiving this owns what happens next.
+        """
+        if self._buffers_moved_at is None:
+            return
+
+        if self._buffers != self._buffers_when_read:
+            self._buffers_when_read = self._buffers
+            self._buffers_moved_at = self._clock()
+            return
+
+        if self._clock() - self._buffers_moved_at < STALL_SECONDS:
+            return
+
+        logger.error(
+            "no audio for %ds from %s, after %d buffers and %d deliveries",
+            STALL_SECONDS,
+            self._device_name or "the microphone",
+            self._buffers,
+            self._deliveries,
+        )
+        self._buffers_moved_at = None
+        self._retire_stall_timer()
+
+        if self._on_stalled is not None:
+            self._on_stalled(self._device_name)
+
     def _build_request(self):
         """A recognition request that streams and stays on the machine."""
         # Checked before it is set
@@ -292,6 +405,10 @@ class SpeechPipeline:
 
         def append_audio(buffer, when):
             request.appendAudioPCMBuffer_(buffer)
+
+            self._buffers += 1
+            if self._buffers % BUFFERS_PER_LOG == 0:
+                logger.debug("buffer %d from the microphone", self._buffers)
 
         input_node.installTapOnBus_bufferSize_format_block_(
             INPUT_BUS, TAP_BUFFER_FRAMES, input_format, append_audio
@@ -320,10 +437,11 @@ class SpeechPipeline:
         transcript = result.bestTranscription().formattedString()
         self._deliveries += 1
         logger.debug(
-            "delivery %d from task %d, %d characters",
+            "delivery %d from task %d, %d characters, final %s",
             self._deliveries,
             task_number,
             len(transcript),
+            result.isFinal(),
         )
 
         self._on_transcript(transcript)
@@ -386,7 +504,15 @@ def _run_check(seconds):
     def complain(error):
         print(f"[+{time.monotonic() - started_at:7.2f}s] ERROR {error}")
 
-    pipeline = SpeechPipeline(show, on_error=complain, pump_run_loop=True)
+    def stalled(device_name):
+        elapsed = time.monotonic() - started_at
+        source = device_name or "the microphone"
+        print(f"[+{elapsed:7.2f}s] STALLED -- no audio from {source}")
+        pipeline.stop()
+
+    pipeline = SpeechPipeline(
+        show, on_error=complain, on_stalled=stalled, pump_run_loop=True
+    )
 
     try:
         pipeline.start()
@@ -412,7 +538,7 @@ def _run_check(seconds):
 
     print(
         f"\nSummary: ran {elapsed:.1f}s | transcripts={len(arrivals)} | "
-        f"longest gap={longest_gap:.1f}s"
+        f"longest gap={longest_gap:.1f}s | buffers={pipeline._buffers}"
     )
     if not arrivals:
         print("FAIL: no transcripts ever arrived.")

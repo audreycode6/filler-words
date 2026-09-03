@@ -18,6 +18,7 @@ frameworks when this was written.
 from audio import (
     AUTHORIZED,
     DENIED,
+    STALL_SECONDS,
     RESTRICTED,
     UNDETERMINED,
     SpeechPipeline,
@@ -163,6 +164,9 @@ class FakeResult:
     def formattedString(self):
         return "the words that were said"
 
+    def isFinal(self):
+        return False
+
 
 def test_a_delivery_from_the_live_task_is_passed_along():
     pipeline, transcripts, errors = build_pipeline()
@@ -195,3 +199,89 @@ def test_a_stopped_pipeline_delivers_nothing():
 
     assert transcripts == []
     assert errors == []
+
+
+# --- a microphone that stops sending audio -----------------------------------
+
+# The stall check reads the buffer count the tap keeps. These tests move both
+# the count and the clock by hand, standing in for a start, which opens a
+# microphone and puts the check on a timer.
+
+
+class FakeClock:
+    """A clock that moves only when a test moves it."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+    def move(self, seconds):
+        self.now += seconds
+
+
+def build_watched_pipeline(device_name="Audrey's Earphones"):
+    """A pipeline watching a buffer count, as start() leaves it. Opens nothing."""
+    stalls = []
+    clock = FakeClock()
+
+    pipeline = SpeechPipeline(
+        lambda _transcript: None, on_stalled=stalls.append, clock=clock
+    )
+    pipeline._device_name = device_name
+    pipeline._buffers_moved_at = clock()
+
+    return pipeline, stalls, clock
+
+
+def test_a_count_that_keeps_moving_reports_nothing():
+    pipeline, stalls, clock = build_watched_pipeline()
+
+    for _ in range(STALL_SECONDS + 2):
+        pipeline._buffers += 10
+        clock.move(1)
+        pipeline._check_for_a_stall()
+
+    assert stalls == []
+
+
+def test_a_count_that_has_only_just_stopped_reports_nothing():
+    # Buffers arrive in bursts, so a count is expected to sit still briefly.
+    pipeline, stalls, clock = build_watched_pipeline()
+
+    clock.move(STALL_SECONDS - 1)
+    pipeline._check_for_a_stall()
+
+    assert stalls == []
+
+
+def test_a_count_that_stands_still_reports_the_device_it_was_reading():
+    pipeline, stalls, clock = build_watched_pipeline()
+
+    clock.move(STALL_SECONDS)
+    pipeline._check_for_a_stall()
+
+    assert stalls == ["Audrey's Earphones"]
+
+
+def test_a_stall_is_reported_once():
+    # Whoever takes the report ends the session. A second report would end the
+    # session that replaced it.
+    pipeline, stalls, clock = build_watched_pipeline()
+
+    clock.move(STALL_SECONDS)
+    pipeline._check_for_a_stall()
+    clock.move(STALL_SECONDS)
+    pipeline._check_for_a_stall()
+
+    assert stalls == ["Audrey's Earphones"]
+
+
+def test_a_machine_with_no_named_device_still_reports():
+    pipeline, stalls, clock = build_watched_pipeline(device_name="")
+
+    clock.move(STALL_SECONDS)
+    pipeline._check_for_a_stall()
+
+    assert stalls == [""]
