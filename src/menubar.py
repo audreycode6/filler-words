@@ -6,8 +6,6 @@ in, so the same interface runs against canned text without a microphone.
 
 The first half of the module takes a Session and returns strings, and is
 tested. The half below it builds AppKit objects from those strings.
-
-docs/design-decisions.md carries the reasoning behind this design.
 """
 
 import AppKit
@@ -97,12 +95,7 @@ def status_title(session):
 
 
 def menu_header(session, stopped_header=None):
-    """The line above the word rows.
-
-    A session ended by a failure reads as whatever that failure is called. A
-    running session reads as transcribing until its first segment commits, and
-    as tracking from then on.
-    """
+    """The line above the word rows."""
     if stopped_header:
         return stopped_header
     if session.is_active:
@@ -118,9 +111,7 @@ def word_rows(session, ordered_by_count=False):
     """Every tracked entry with its count, as (entry, count) pairs.
 
     Rows hold the order of the tracked list while a session runs, and sort by
-    count once it stops. Words sharing a count come out in the order the
-    tracked list gives them, the count being the whole sort key and `list.sort`
-    leaving equal items where they are.
+    count once it stops.
     """
     rows = list(session.counts.items())
     if ordered_by_count:
@@ -168,12 +159,10 @@ PRIVACY_SETTINGS_URLS = {
 
 
 def on_main(work):
-    """Run work on the main thread."""
     dispatch.dispatch_async(dispatch.dispatch_get_main_queue(), work)
 
 
 def _symbol(name, description):
-    """One template image from the system symbol of that name, or None."""
     image = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(
         name, description
     )
@@ -190,7 +179,6 @@ def _attributed(text, attributes):
 
 
 def _word_title(text):
-    """The word half of a word row."""
     return _attributed(
         text,
         {
@@ -203,7 +191,6 @@ def _word_title(text):
 
 
 def _count_title(count):
-    """The count half of a word row, in the monospaced-digit system font."""
     return _attributed(
         str(count),
         {
@@ -218,7 +205,6 @@ def _count_title(count):
 
 
 def _totals_title(text):
-    """One of the total lines below the word rows."""
     return _attributed(
         text,
         {
@@ -231,7 +217,6 @@ def _totals_title(text):
 
 
 def _muted_title(text):
-    """A refusal's explanation."""
     return _attributed(
         text,
         {
@@ -246,7 +231,8 @@ def _muted_title(text):
 def _header_title(text):
     """The header above the word rows.
 
-    `sectionHeaderWithTitle:` requires Sonoma; the target is macOS 13.
+    Sets the font, weight and color itself because AppKit's one-line
+    `sectionHeaderWithTitle:` needs macOS 14, and this app supports macOS 13.
     """
     return _attributed(
         text,
@@ -260,14 +246,12 @@ def _header_title(text):
 
 
 def _label(attributed):
-    """A label sized to the text it is given."""
     label = AppKit.NSTextField.labelWithAttributedString_(attributed)
     label.sizeToFit()
     return label
 
 
 def _holder(width, height):
-    """The view an item is drawn by."""
     return AppKit.NSView.alloc().initWithFrame_(
         Foundation.NSMakeRect(0.0, 0.0, width, height)
     )
@@ -460,20 +444,12 @@ class MenuBarApp:
         on_main(self._apply_open_menu)
 
     def recognition_failed(self):
-        """End the session, and show that recognition is what ended it.
-
-        Raises an alert as well as marking the menu, so a person talking into a
-        session that has died hears about it as it happens.
-        """
+        """End the session, and show that recognition is what ended it."""
         self._stopped_early(ERROR_HEADER, ERROR_GUIDANCE)
         self._alert(ERROR_HEADER, ERROR_GUIDANCE)
 
     def input_stopped(self, device_name):
-        """End the session when the microphone stops sending audio.
-
-        Raises an alert as well as marking the menu, so a person talking into a
-        session that has died hears about it as it happens.
-        """
+        """End the session when the microphone stops sending audio."""
         guidance = input_stopped_guidance(device_name)
         self._stopped_early(INPUT_STOPPED_HEADER, guidance)
         self._alert(INPUT_STOPPED_HEADER, guidance)
@@ -722,119 +698,3 @@ class MenuBarApp:
         alert.addButtonWithTitle_("OK")
         self._app.activateIgnoringOtherApps_(True)
         alert.runModal()
-
-
-# --- checking the module on its own ------------------------------------------
-
-CHECK_INTERVAL_SECONDS = 0.4
-
-CHECK_WORDS = ("like", "the", "it", "words", "again", "end")
-
-# How many segments commit before the error check reports one.
-CHECK_ERROR_AFTER_SEGMENTS = 2
-
-# 4 segments, each arriving as the whole transcript so far, the way the
-# recognizer delivers them. A short opening collapses the one before it, which
-# commits that segment.
-CHECK_TRANSCRIPTS = (
-    "I like",
-    "I like the way",
-    "I like the way it works",
-    "I like the way it works and I like the words",
-    "So",
-    "So it counts",
-    "So it counts the words again",
-    "So it counts the words again and again until the end",
-    "Then",
-    "Then the words",
-    "Then the words settle and it is like",
-    "Then the words settle and it is like the end again",
-    "One",
-    "One more time",
-    "One more time it says the words",
-    "One more time it says the words like the end",
-)
-
-
-def _run_check(forced_state, refused_side, report_error=False):
-    """Drive the real interface from recorded transcripts, with no microphone.
-
-    Transcripts arrive on a timer in the common run loop modes, so both the
-    status item and an open menu keep counting while the menu is on screen.
-
-    `report_error` reports an error partway through the replay.
-    """
-    from matcher import SegmentTracker, count_tracked
-    from session import Session
-
-    session = Session(CHECK_WORDS)
-    tracker = SegmentTracker()
-    replay = iter(CHECK_TRANSCRIPTS)
-    reported = False
-
-    mic_state = forced_state if refused_side in ("microphone", "both") else AUTHORIZED
-    speech_state = forced_state if refused_side in ("speech", "both") else AUTHORIZED
-
-    def started():
-        """Start over the way the app does, on a tracker that has seen nothing."""
-        nonlocal tracker, replay, reported
-        tracker = SegmentTracker()
-        replay = iter(CHECK_TRANSCRIPTS)
-        reported = False
-        return forced_state
-
-    app = MenuBarApp(
-        session,
-        on_start=started,
-        on_stop=lambda: None,
-        read_authorization=lambda: (forced_state, mic_state, speech_state),
-    )
-
-    def feed(_timer):
-        nonlocal reported
-        if not session.is_active:
-            return
-        if (
-            report_error
-            and not reported
-            and session.segments_counted == CHECK_ERROR_AFTER_SEGMENTS
-        ):
-            app.recognition_failed()
-            reported = True
-        try:
-            transcript = next(replay)
-        except StopIteration:
-            segment = tracker.flush()
-            if segment is not None:
-                session.record(*count_tracked(segment, CHECK_WORDS))
-            app.refresh()
-            return
-
-        segment = tracker.update(transcript)
-        if segment is not None:
-            session.record(*count_tracked(segment, CHECK_WORDS))
-        app.refresh()
-
-    timer = AppKit.NSTimer.timerWithTimeInterval_repeats_block_(
-        CHECK_INTERVAL_SECONDS, True, feed
-    )
-    Foundation.NSRunLoop.currentRunLoop().addTimer_forMode_(
-        timer, Foundation.NSRunLoopCommonModes
-    )
-
-    print(f"Reporting authorization as {forced_state}. Open the menu bar item.")
-    if report_error:
-        print(f"Reporting an error after {CHECK_ERROR_AFTER_SEGMENTS} segments.")
-    app.run()
-    return 0
-
-
-if __name__ == "__main__":
-    import sys
-
-    # python src/menubar.py [authorized|denied|restricted] [microphone|speech|both]
-    # Add "error" to report one partway through the replay.
-    arguments = [argument for argument in sys.argv[1:] if argument != "error"]
-    requested = arguments[0] if arguments else AUTHORIZED
-    side = arguments[1] if len(arguments) > 1 else "both"
-    sys.exit(_run_check(requested, side, report_error="error" in sys.argv[1:]))

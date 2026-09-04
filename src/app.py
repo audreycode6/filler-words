@@ -4,8 +4,6 @@ Each of the other modules stands alone: `audio.py` produces transcripts,
 `matcher.py` turns a finished segment into counts, `session.py` holds the
 totals, and `menubar.py` draws them. This module builds one of each and decides
 who calls whom.
-
-docs/design-decisions.md carries the reasoning behind this design.
 """
 
 import logging

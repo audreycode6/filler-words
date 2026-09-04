@@ -8,8 +8,6 @@ derived here from them, the percentage included.
 
 This module is handed what `matcher.py`'s `count_tracked` returned and works
 only on those numbers.
-
-docs/design-decisions.md carries the reasoning behind this design.
 """
 
 import time

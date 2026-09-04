@@ -6,8 +6,6 @@ word. Matching takes the longest form that fits before looking for the next one,
 so a phrase and a word inside it can both appear here.
 
 Each form here has been spoken into the recognizer and its output read back.
-
-docs/design-decisions.md carries the reasoning behind this design.
 """
 
 TRACKED_WORDS = {
