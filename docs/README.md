@@ -23,7 +23,8 @@ is gathered under What's still open.
 [`design-decisions.md`](design-decisions.md) holds 5, one per part of the app:
 choosing what the app counts, counting tracked words in a revising transcript,
 holding the totals of one session, streaming speech from the microphone, and
-showing one session in the menu bar.
+showing one session in the menu bar. It carries the reasoning behind every
+module in [`../src`](../src), which the modules themselves do not repeat.
 
 ## What's still open
 

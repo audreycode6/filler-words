@@ -9,8 +9,6 @@ it.
     count_tracked    a pure function of one segment's text.
 
 The running totals across segments belong to the session, in session.py.
-
-docs/design-decisions.md carries the reasoning behind this design.
 """
 
 # A transcript this much shorter than the one before it, or shorter still, has
