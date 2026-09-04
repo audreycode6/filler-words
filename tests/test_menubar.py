@@ -3,7 +3,7 @@
 These tests build no AppKit object and need no window server, so they run
 wherever the rest of the suite does. They cover the half of `menubar.py` that
 takes a session and returns strings; the half that builds menu items from them
-is checked by running `python src/menubar.py`.
+is checked by running `python checks/check_menubar.py`.
 
 Each test builds the tracked-word list it needs rather than importing the
 shipped list, so that changing what the app tracks changes no test here.
