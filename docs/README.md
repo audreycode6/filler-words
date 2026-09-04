@@ -59,6 +59,12 @@ Each names where it came from.
   app separates them and a session counting nothing looks healthy. Reading the
   loudness of each buffer would separate them -- needs a threshold measured
   against one microphone and one room.
+- **Whether the System Settings links open the right pane outside macOS 13.**
+  A refused permission is offered a link, and the 2 panes are addressed by URL.
+  macOS 13 renamed System Preferences to System Settings and moved several
+  panes, and nothing checks that a URL resolved, so on another version the link
+  could land somewhere unhelpful while the menu reads as though it worked.
+  Every run so far has been on macOS 13.
 
 ## Writing a spike file
 
